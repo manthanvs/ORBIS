@@ -15,12 +15,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Run a single unit test:
 
 ```bash
-./gradlew test --tests "com.example.orbis_optimizedresponsiblebrowsinginterventionsystem.ExampleUnitTest"
+./gradlew test --tests "com.orbis.app.ExampleUnitTest"
 ```
+
+### CLI builds need JAVA_HOME set
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+```
+
+`gradle/gradle-daemon-jvm.properties` pins the daemon to `toolchainVersion=21`. With `JAVA_HOME` unset, Gradle matches that against *any* detected Java 21 — including JRE-only runtimes bundled with IDE extensions. Those ship no `jlink`, so AGP's `JdkImageTransform` dies with `jlink executable ... does not exist`. If you see that, set `JAVA_HOME` as above **and** run `./gradlew --stop`, because a daemon that already resolved the bad JVM will keep reusing it. Android Studio is unaffected — it uses its own Gradle JDK setting.
 
 ## Current state
 
-**This repo is an unmodified Android Studio "Empty Activity" (Compose) template.** `MainActivity.kt` is the stock Greeting composable; `AndroidManifest.xml` declares only the launcher Activity — no permissions, services, or receivers. None of the ORBIS functionality below exists yet. Expect greenfield work; do not search for modules that aren't there.
+**Phase 0 is done; there is no ORBIS behaviour yet.** Dependencies, package name, and minSdk are set, and a minimal Room database exists under `com.orbis.app.data` (`UsageLog`, `UsageLogDao`, `OrbisDatabase`). Those three files were added to prove KSP actually generates code under AGP 9 — treat them as a verified toolchain smoke test, not a finished data layer.
+
+Everything else is still the stock template: `MainActivity.kt` is the Greeting composable, and `AndroidManifest.xml` declares only the launcher Activity — no permissions, services, or receivers. Nothing measures usage, throttles traffic, or captures a good deed. Expect greenfield work; do not search for modules that aren't there.
 
 Update this file as real structure lands.
 
@@ -28,15 +38,24 @@ Update this file as real structure lands.
 
 - Single module (`:app`), Kotlin + Jetpack Compose
 - Gradle 9.4.1, AGP 9.2.1, Kotlin 2.2.10, Compose BOM 2026.02.01
-- compileSdk/targetSdk 36, **minSdk 24**, Java 11 compatibility
-- Package root: `com.example.orbis_optimizedresponsiblebrowsinginterventionsystem`
+- compileSdk/targetSdk 36, **minSdk 26**, Java 11 compatibility
+- Package root: `com.orbis.app`
 - `gradle/libs.versions.toml` is the source of truth for dependency versions — add deps there, not inline
 - Release build type sets `optimization { enable = false }` (minification explicitly off — non-default)
+- **AGP 9 built-in Kotlin support**: there is no `org.jetbrains.kotlin.android` plugin. Only the Android, Compose-compiler, and KSP plugins are applied. Don't add `kotlin-android` "to fix" something — it isn't missing.
+- KSP is pinned to an exact Kotlin build (`2.2.10-2.0.2`). Bump it and `kotlin` together or the build breaks.
+- `android.disallowKotlinSourceSets=false` in `gradle.properties` is **load-bearing**. Built-in Kotlin rejects the `kotlin.sourceSets` DSL that KSP uses to register its generated sources, so removing this flag breaks Room with `Using kotlin.sourceSets DSL to add Kotlin sources is not allowed with built-in Kotlin`. It's a suppression, not a fix — drop it once a KSP release supports AGP 9 natively.
 
-### Known deviations to resolve in Phase 0
+### Don't bump AndroidX versions blindly
 
-- **minSdk must be raised 24 → 26.** API 26 is the required floor for `VpnService`, notification channels, and the modern permission APIs this project depends on.
-- The `com.example.` package prefix is template default. Renaming is cheap now and painful once the VPN service and manifest entries exist — decide before Phase 2.
+Only `android-36.1` is installed locally, so compileSdk is 36. Every AAR declares a `minCompileSdk` and the build hard-fails at `checkDebugAarMetadata` if it exceeds ours. Already hit: **core-ktx 1.19.0** and **lifecycle 2.11.0** require compileSdk 37 — hence the pins at 1.18.0 and 2.10.0.
+
+Note that Google's `maven-metadata.xml` `<release>` field often points at an **alpha** (it did for WorkManager, Navigation, and CameraX), so don't read it as "latest stable". To check a version before committing to it, read `minCompileSdk` out of the AAR directly:
+
+```
+https://dl.google.com/dl/android/maven2/<group/path>/<ver>/<artifact>-<ver>.aar
+  -> META-INF/com/android/build/gradle/aar-metadata.properties
+```
 
 ## What ORBIS is
 
