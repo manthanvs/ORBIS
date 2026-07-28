@@ -5,10 +5,18 @@ import android.net.VpnService
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.orbis.app.data.DatabaseProvider
+import com.orbis.app.data.UsageRepository
 import com.orbis.app.throttle.ThrottleEngine
 import com.orbis.app.throttle.ThrottleSettings
-import com.orbis.app.usage.UsageProfile
+import com.orbis.app.usage.UsageProfileHolder
+import com.orbis.app.usage.UsageStatsSource
 import com.orbis.app.vpn.OrbisVpnService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Watches the foreground screen and publishes the detected [Surface].
@@ -34,10 +42,24 @@ class OrbisAccessibilityService : AccessibilityService() {
     private var lastLoggedSurface: Surface? = null
     private var lastLoggedPackage: String? = null
     private var normalSince = 0L
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.i(TAG, "connected; observing=" + (serviceInfo?.packageNames?.joinToString() ?: "ALL"))
+        ThrottleSettings.init(applicationContext)
+
+        // The gate scales the delay by today's usage, but this service may be the
+        // first thing to run in the process - the UI need never have opened. Seed
+        // the profile so the first throttle is not stuck at the base delay.
+        scope.launch {
+            runCatching {
+                UsageRepository(
+                    source = UsageStatsSource.from(applicationContext),
+                    dao = DatabaseProvider.get(applicationContext).usageLogDao(),
+                ).refreshToday()
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -87,7 +109,10 @@ class OrbisAccessibilityService : AccessibilityService() {
         if (surface.throttled) {
             normalSince = 0L
             if (!running) {
-                val delay = ThrottleEngine.ruleFor(surface, UsageProfile.EMPTY).delayMillis
+                // Real usage, not EMPTY: this is what makes the throttle adaptive.
+                val delay = ThrottleEngine
+                    .ruleFor(surface, UsageProfileHolder.profile.value)
+                    .delayMillis
                 OrbisVpnService.start(this, delay)
             }
             return
@@ -110,6 +135,7 @@ class OrbisAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        scope.cancel()
         SurfaceMonitor.reset()
     }
 

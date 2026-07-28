@@ -174,7 +174,7 @@ private fun TunnelCard(
                 )
             }
             Text(
-                text = "Instagram, YouTube and Snapchat only. WhatsApp is not " +
+                text = "Instagram, YouTube, Snapchat and browsers. WhatsApp is not " +
                     "routed through the tunnel at all.",
                 style = MaterialTheme.typography.bodySmall,
             )

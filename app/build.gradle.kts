@@ -58,6 +58,9 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
+    // Persists the auto-throttle toggle across restarts
+    implementation(libs.androidx.datastore.preferences)
+
     // GoodDeedScheduler periodic job (Phase 5)
     implementation(libs.androidx.work.runtime.ktx)
 

@@ -3,6 +3,7 @@ package com.orbis.app.data
 import com.orbis.app.usage.ForegroundTimeCalculator
 import com.orbis.app.usage.TargetApp
 import com.orbis.app.usage.UsageProfile
+import com.orbis.app.usage.UsageProfileHolder
 import com.orbis.app.usage.UsageStatsSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -52,7 +53,7 @@ class UsageRepository(
             )
         }
 
-        UsageProfile.from(totals)
+        UsageProfile.from(totals).also(UsageProfileHolder::publish)
     }
 
     /**

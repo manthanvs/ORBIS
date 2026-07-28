@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.orbis.app.surface.BrowserPackages
 import com.orbis.app.usage.TargetApp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -92,9 +93,9 @@ class OrbisVpnService : VpnService() {
         }.onFailure { status = "IPv6 setup failed: ${it.message}" }
 
         var allowed = 0
-        TargetApp.throttleable.forEach { app ->
+        routedPackages().forEach { packageName ->
             try {
-                builder.addAllowedApplication(app.packageName)
+                builder.addAllowedApplication(packageName)
                 allowed++
             } catch (_: PackageManager.NameNotFoundException) {
                 // Not installed on this device; nothing to route.
@@ -136,7 +137,9 @@ class OrbisVpnService : VpnService() {
         val input = FileInputStream(descriptor.fileDescriptor)
         val output = FileOutputStream(descriptor.fileDescriptor)
         val buffer = ByteArray(MTU)
-        status = "relay running"
+        // Include the delay: it is the only way to see that the throttle actually
+        // scaled with usage rather than sitting at the base value.
+        status = "relay running, delay ${delayMillis}ms"
 
         try {
             while (active) {
@@ -358,6 +361,23 @@ class OrbisVpnService : VpnService() {
         @Volatile
         var status: String = "idle"
             private set
+
+        /**
+         * Packages the tunnel may route.
+         *
+         * Browsers are included because `youtube.com/shorts` opens in a browser on
+         * many devices, and detection alone throttles nothing if the traffic never
+         * enters the tunnel.
+         *
+         * Caveat worth keeping in mind: while a browser is routed, *all* of its
+         * traffic goes through the tunnel, not just the Shorts tab - a VPN cannot
+         * see tabs. Gating on [com.orbis.app.surface.Surface.BROWSER_SHORT_VIDEO]
+         * keeps that window as narrow as the design allows.
+         *
+         * WhatsApp is absent, and must stay absent.
+         */
+        fun routedPackages(): List<String> =
+            TargetApp.throttleable.map { it.packageName } + BrowserPackages.ALL
 
         fun start(context: Context, delayMillis: Long = 0L) {
             context.startService(

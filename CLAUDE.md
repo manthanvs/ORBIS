@@ -28,16 +28,20 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 
 ## Current state
 
-**Phases 0 and 1 are done.** Usage tracking works end to end: `MainActivity` shows today's per-app screen time, gated behind a usage-access prompt.
+**Phases 0, 1 and 2 are done and verified on device (CPH2585, Android 16).** Usage is tracked, the on-screen surface is detected, and Reels/Shorts/Spotlight traffic is genuinely slowed while Stories, DMs and everything else are untouched.
 
 What exists:
 
-- `com.orbis.app.usage` — `TargetApp` (the four packages), `ForegroundTimeCalculator` (event pairing), `UsageProfile` (ranking), `DurationFormatter`. All pure Kotlin, all unit-tested.
-- `com.orbis.app.usage` — `UsageStatsSource` (adapter over `UsageStatsManager`), `UsageAccess` (app-op check + Settings deep link).
+- `com.orbis.app.usage` — `TargetApp`, `ForegroundTimeCalculator`, `UsageProfile`, `DurationFormatter`, `UsageProfileHolder`; plus `UsageStatsSource` and `UsageAccess`.
+- `com.orbis.app.surface` — `SurfaceDetector` (pure), `OrbisAccessibilityService`, `SurfaceMonitor`, `AccessibilityAccess`, `BrowserPackages`.
+- `com.orbis.app.throttle` — `ThrottleEngine` (pure, usage-scaled delay), `ThrottleSettings` (DataStore-backed).
+- `com.orbis.app.vpn` — `Ipv4`/`Ipv6` (pure packet parse/build), `OrbisVpnService` (UDP relay).
 - `com.orbis.app.data` — `UsageLog`/`UsageLogDao`/`OrbisDatabase`, `DatabaseProvider`, `UsageRepository`.
 - `com.orbis.app.ui` — `UsageViewModel`, `UsageScreen`.
 
-Not built yet: **no throttling, no VPN service, no dashboard trends, no good-deed challenge.** `AndroidManifest.xml` declares only `PACKAGE_USAGE_STATS` and the launcher Activity — no services or receivers. Phases 2-5 are greenfield.
+Measured behaviour: Reels detected → tunnel up with a usage-scaled delay (400 ms at ~1 h of Instagram), `read 1138 / UDP fwd 1045 / TCP dropped 77`. Browsers are routed too, so `youtube.com/shorts` in Chrome or Edge is throttled.
+
+Not built yet: **no dashboard trends (Phase 4), no good-deed challenge (Phase 5).** Room holds only `UsageLog` — `ThrottleRule` and `GoodDeedEntry` still need adding, with a version bump and migration. The tunnel is **not yet a foreground service**, so Android may kill it when ORBIS is backgrounded.
 
 Update this file as real structure lands.
 
@@ -186,8 +190,9 @@ Build in this order. Verify each "Done when" before moving on. Commit after ever
 | 0 | ~~Project setup (deps, minSdk bump)~~ | **Done** — builds, installs, launches clean |
 | 1 | ~~Usage tracking + usage-access deep link~~ | **Done** on emulator; the literal "a minute of Instagram" check still needs a real device with Instagram installed |
 | 2a | ~~Surface detection (AccessibilityService)~~ | **Done** — Reels/Shorts/Spotlight/browser-URL detected; Stories reported as NORMAL |
-| 2b | VPN passthrough, no delay | Traffic flows normally, connections attributed to the right app |
-| 2c | Throttle gated on surface | Instagram **Reels** measurably slower than Instagram **Stories**, same app and network; WhatsApp never affected |
+| 2b | ~~VPN passthrough, no delay~~ | **Done** — UDP/QUIC relay carries real traffic (~1 MB/12 s through `tun0`) |
+| 2c | ~~Throttle gated on surface~~ | **Done** — tunnel only up during Reels/Shorts/Spotlight, usage-scaled delay (400 ms observed), WhatsApp absent from the tunnel's `Uids:` set. Side-by-side Reels-vs-Stories timing still worth doing if you want a number for the write-up. |
+| 3 | ~~Usage profile + adaptive intensity~~ | **Done** — `UsageProfileHolder` feeds real usage into `ThrottleEngine`; delay scales 120 ms → 400 ms with daily use |
 | 3 | Usage profile + adaptive intensity | Highest-usage app gets the strongest throttle, across two usage patterns |
 | 4 | Dashboard | Reflects real logged data, not placeholders |
 | 5 | Good deed challenge | Full loop — notification → photo → saved entry → dashboard — works end to end |
