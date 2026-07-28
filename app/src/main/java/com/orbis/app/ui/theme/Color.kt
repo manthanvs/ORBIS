@@ -1,4 +1,4 @@
-package com.example.orbis_optimizedresponsiblebrowsinginterventionsystem.ui.theme
+package com.orbis.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

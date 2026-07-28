@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.orbis_optimizedresponsiblebrowsinginterventionsystem"
+    namespace = "com.orbis.app"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -12,8 +12,10 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.orbis_optimizedresponsiblebrowsinginterventionsystem"
-        minSdk = 24
+        applicationId = "com.orbis.app"
+        // API 26 is the floor for VpnService, notification channels, and the
+        // modern permission APIs ORBIS depends on. See CLAUDE.md Phase 0.
+        minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"

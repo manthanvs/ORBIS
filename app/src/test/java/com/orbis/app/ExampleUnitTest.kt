@@ -1,4 +1,4 @@
-package com.example.orbis_optimizedresponsiblebrowsinginterventionsystem
+package com.orbis.app
 
 import org.junit.Test
 
