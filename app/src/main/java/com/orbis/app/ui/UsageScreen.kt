@@ -32,13 +32,22 @@ import com.orbis.app.usage.DurationFormatter
 import com.orbis.app.usage.TargetApp
 import com.orbis.app.usage.UsageProfile
 
+/** Tunnel state, kept separate so the screen stays a pure function of its inputs. */
+data class TunnelUiState(
+    val running: Boolean = false,
+    val udpForwarded: Long = 0L,
+    val tcpDropped: Long = 0L,
+)
+
 @Composable
 fun UsageScreen(
     state: UsageUiState,
     detected: DetectedSurface,
     hasDetection: Boolean,
+    tunnel: TunnelUiState,
     onGrantUsageAccess: () -> Unit,
     onEnableDetection: () -> Unit,
+    onToggleTunnel: () -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -117,6 +126,62 @@ fun UsageScreen(
             )
         } else {
             DetectionCard(detected)
+        }
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider()
+
+        Text(
+            text = "Tunnel (passthrough)",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        TunnelCard(
+            running = tunnel.running,
+            udpForwarded = tunnel.udpForwarded,
+            tcpDropped = tunnel.tcpDropped,
+            onToggle = onToggleTunnel,
+        )
+    }
+}
+
+@Composable
+private fun TunnelCard(
+    running: Boolean,
+    udpForwarded: Long,
+    tcpDropped: Long,
+    onToggle: () -> Unit,
+) {
+    Card {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Status", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = if (running) "running" else "stopped",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Text(
+                text = "Instagram, YouTube and Snapchat only. WhatsApp is not " +
+                    "routed through the tunnel at all.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                text = "UDP forwarded: $udpForwarded   •   TCP dropped: $tcpDropped",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Button(onClick = onToggle) {
+                Text(if (running) "Stop tunnel" else "Start tunnel")
+            }
         }
     }
 }
@@ -224,8 +289,10 @@ private fun UsageScreenPreview() {
             ),
             detected = DetectedSurface(Surface.REELS, "com.instagram.android", 0L),
             hasDetection = true,
+            tunnel = TunnelUiState(running = true, udpForwarded = 1_284, tcpDropped = 12),
             onGrantUsageAccess = {},
             onEnableDetection = {},
+            onToggleTunnel = {},
             onRefresh = {},
         )
     }

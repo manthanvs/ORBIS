@@ -51,6 +51,22 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!--
+            The tunnel is restricted to the three target apps via
+            addAllowedApplication and is only established while a short-form
+            video surface is on screen. BIND_VPN_SERVICE means only the system
+            can bind it. Consent still comes from the system dialog raised by
+            VpnService.prepare().
+        -->
+        <service
+            android:name=".vpn.OrbisVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>
