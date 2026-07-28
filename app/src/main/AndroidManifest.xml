@@ -11,6 +11,15 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!--
+        Required by the VPN relay, despite the "no server component" design.
+        Intercepting other apps' traffic needs no permission, but *forwarding* it
+        does: the relay opens its own sockets, and without INTERNET every
+        DatagramSocket() throws EPERM and the tunnel silently blackholes
+        everything it captures.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

@@ -168,7 +168,7 @@ GoodDeedScheduler (WorkManager) → Notification → CameraCapture
 
 Save good-deed photos to app-private storage (`context.filesDir` / `getExternalFilesDir(null)`), never shared storage — this avoids broad storage permissions entirely.
 
-`INTERNET` is likely **not** needed: the VPN service intercepts other apps' traffic, it doesn't make calls of its own.
+`INTERNET` **is** required — corrected on device. The original reasoning ("the VPN intercepts other apps' traffic, it doesn't make calls of its own") holds for *interception* but not for *relaying*: the relay opens its own sockets to forward packets onward. Without it every `DatagramSocket()` throws `EPERM (Operation not permitted)`, the relay thread dies on its first packet, and the tunnel becomes a black hole that silently eats all traffic from the apps it captures — with no crash and nothing in logcat.
 
 ### Usage-access gotchas (learned the hard way)
 
