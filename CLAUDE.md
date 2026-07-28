@@ -28,9 +28,16 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 
 ## Current state
 
-**Phase 0 is done; there is no ORBIS behaviour yet.** Dependencies, package name, and minSdk are set, and a minimal Room database exists under `com.orbis.app.data` (`UsageLog`, `UsageLogDao`, `OrbisDatabase`). Those three files were added to prove KSP actually generates code under AGP 9 — treat them as a verified toolchain smoke test, not a finished data layer.
+**Phases 0 and 1 are done.** Usage tracking works end to end: `MainActivity` shows today's per-app screen time, gated behind a usage-access prompt.
 
-Everything else is still the stock template: `MainActivity.kt` is the Greeting composable, and `AndroidManifest.xml` declares only the launcher Activity — no permissions, services, or receivers. Nothing measures usage, throttles traffic, or captures a good deed. Expect greenfield work; do not search for modules that aren't there.
+What exists:
+
+- `com.orbis.app.usage` — `TargetApp` (the four packages), `ForegroundTimeCalculator` (event pairing), `UsageProfile` (ranking), `DurationFormatter`. All pure Kotlin, all unit-tested.
+- `com.orbis.app.usage` — `UsageStatsSource` (adapter over `UsageStatsManager`), `UsageAccess` (app-op check + Settings deep link).
+- `com.orbis.app.data` — `UsageLog`/`UsageLogDao`/`OrbisDatabase`, `DatabaseProvider`, `UsageRepository`.
+- `com.orbis.app.ui` — `UsageViewModel`, `UsageScreen`.
+
+Not built yet: **no throttling, no VPN service, no dashboard trends, no good-deed challenge.** `AndroidManifest.xml` declares only `PACKAGE_USAGE_STATS` and the launcher Activity — no services or receivers. Phases 2-5 are greenfield.
 
 Update this file as real structure lands.
 
@@ -116,7 +123,7 @@ GoodDeedScheduler (WorkManager) → Notification → CameraCapture
 
 | Permission | Notes |
 |---|---|
-| `PACKAGE_USAGE_STATS` | Special permission — deep-link to `Settings.ACTION_USAGE_ACCESS_SETTINGS`, not a runtime request. Most likely to trip you up; test first. |
+| `PACKAGE_USAGE_STATS` | Done (Phase 1). See the gotcha below. |
 | VPN consent | Not a manifest permission — triggered by `VpnService.prepare()`. Declare the service with `BIND_VPN_SERVICE`. |
 | `POST_NOTIFICATIONS` | Runtime, Android 13+ |
 | `CAMERA` | Standard runtime permission |
@@ -125,14 +132,21 @@ Save good-deed photos to app-private storage (`context.filesDir` / `getExternalF
 
 `INTERNET` is likely **not** needed: the VPN service intercepts other apps' traffic, it doesn't make calls of its own.
 
+### Usage-access gotchas (learned the hard way)
+
+- **`MODE_DEFAULT` is not "denied".** The app-op check returns `MODE_ALLOWED`, `MODE_IGNORED`, or `MODE_DEFAULT`, and the last means "defer to the permission". Treating it as denied strands the user on the grant prompt forever, even after they grant access. `UsageAccess.isGranted` falls back to `checkPermission` for that case — don't "simplify" it away.
+- **Re-check on resume, never cache.** Access is granted in Settings, outside the app. `MainActivity` uses `LifecycleResumeEffect` for this.
+- **`connectedAndroidTest` reinstalls the APK, which clears app-ops.** Granting with `adb shell appops set ... allow` beforehand therefore does nothing for instrumented tests. The tests grant it themselves via `uiAutomation.executeShellCommand`.
+- Emulators have none of the four target apps installed, so a correct build legitimately shows "nothing tracked". Don't chase that as a bug — verify on a real device.
+
 ## Build phases
 
 Build in this order. Verify each "Done when" before moving on. Commit after every phase — if an agent run breaks Phase 3, you want a clean revert to end-of-Phase-2.
 
 | Phase | Focus | Done when |
 |---|---|---|
-| 0 | Project setup (deps, minSdk bump) | Builds and installs on an emulator with zero errors |
-| 1 | Usage tracking + usage-access deep link | A minute of Instagram use is correctly logged |
+| 0 | ~~Project setup (deps, minSdk bump)~~ | **Done** — builds, installs, launches clean |
+| 1 | ~~Usage tracking + usage-access deep link~~ | **Done** on emulator; the literal "a minute of Instagram" check still needs a real device with Instagram installed |
 | 2 | VPN throttle engine | Instagram is measurably slower than WhatsApp, same network, VPN active |
 | 3 | Usage profile + adaptive intensity | Highest-usage app gets the strongest throttle, across two usage patterns |
 | 4 | Dashboard | Reflects real logged data, not placeholders |
