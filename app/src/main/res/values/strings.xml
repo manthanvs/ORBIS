@@ -3,5 +3,9 @@
 
     <string name="accessibility_service_label">ORBIS surface detection</string>
     <string name="accessibility_service_summary">Detects short-form video feeds so only those can be slowed down</string>
+    <string name="throttle_channel_name">Throttling</string>
+    <string name="throttle_notification_title">Slowing short-form video</string>
+    <string name="throttle_notification_text">Reels, Shorts and Spotlight only — everything else is at full speed</string>
+
     <string name="accessibility_service_description">ORBIS needs this to tell which screen you are on inside an app — for example Instagram Reels versus Instagram Stories. Only Reels, Shorts and Spotlight are ever slowed; Stories, messages and normal videos are left alone. ORBIS reads screens only in the apps it targets, keeps everything on your device, and never sends anything anywhere.</string>
 </resources>

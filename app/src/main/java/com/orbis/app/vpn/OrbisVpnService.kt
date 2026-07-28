@@ -1,11 +1,17 @@
 package com.orbis.app.vpn
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.orbis.app.R
 import com.orbis.app.surface.BrowserPackages
 import com.orbis.app.usage.TargetApp
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,6 +128,8 @@ class OrbisVpnService : VpnService() {
             return
         }
 
+        goForeground()
+
         active = true
         running.value = true
         packetsRead = 0
@@ -131,6 +139,39 @@ class OrbisVpnService : VpnService() {
         status = "tunnel up, delay ${delayMillis}ms"
         Log.i(TAG, "tunnel up for $allowed app(s), delay=${delayMillis}ms")
         worker = thread(name = "orbis-vpn") { relay(descriptor) }
+    }
+
+    /**
+     * Keeps the tunnel alive once ORBIS is backgrounded, which is exactly when the
+     * user is scrolling. The notification is deliberately low importance: it is a
+     * disclosure that traffic is being shaped, not something to interrupt with.
+     */
+    private fun goForeground() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.throttle_channel_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply { setShowBadge(false) }
+        )
+
+        val notification = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle(getString(R.string.throttle_notification_title))
+            .setContentText(getString(R.string.throttle_notification_text))
+            .setSmallIcon(R.drawable.ic_orbis_notification)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun relay(descriptor: ParcelFileDescriptor) {
@@ -316,6 +357,8 @@ class OrbisVpnService : VpnService() {
         runCatching { tunnel?.close() }
         tunnel = null
 
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+
         status = "stopped (read=$packetsRead, udp=$udpPacketsForwarded, tcp dropped=$tcpPacketsDropped)"
         Log.i(TAG, status)
     }
@@ -326,6 +369,9 @@ class OrbisVpnService : VpnService() {
         const val ACTION_START = "com.orbis.app.vpn.START"
         const val ACTION_STOP = "com.orbis.app.vpn.STOP"
         const val EXTRA_DELAY_MILLIS = "delayMillis"
+
+        private const val CHANNEL_ID = "orbis_throttle"
+        private const val NOTIFICATION_ID = 1
 
         private const val SESSION = "ORBIS"
         private const val TUNNEL_ADDRESS_V4 = "10.111.222.2"
