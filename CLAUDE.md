@@ -81,7 +81,9 @@ MVP scope is five pieces:
 These are design intent, not implementation detail. Do not relax them without asking.
 
 - **WhatsApp is never throttled.** It's a communication tool, not passive-scroll content. This is a dedicated negative test case, not an afterthought.
-- **Only Instagram, YouTube, and Snapchat are targeted**, at whole-app level. Reels/Shorts-specific targeting is deliberately deferred (domain-level filtering can't see encrypted request paths) and belongs in Future Scope, not v1.
+- **Only short-form video surfaces are throttled**: Instagram Reels, YouTube Shorts, Snapchat Spotlight, and those same feeds opened in a browser. Instagram **Stories**, DMs, the feed, long-form YouTube and Snapchat chats stay at full speed. *(Revised from the original whole-app scope. A VPN alone cannot do this — HTTPS hides the URL path and Reels shares CDN hosts with Stories — so an AccessibilityService supplies the on-screen context and the VPN acts only while gated on. See the survey section for the measured evidence.)*
+- **Detection fails safe to `NORMAL`.** An unrecognised screen is never throttled. A false positive slows something the user asked to keep fast, which is worse than missing a Reel.
+- **Match view ids exactly and scope them per package.** Never substring-match: `reel_*` is Stories in Instagram but Shorts in YouTube, and Snapchat's nav bar carries `ngs_spotlight_icon_container` on every screen.
 - **Entirely on-device.** All data local; no server component, no cloud storage, no sync.
 - **Dashboard copy is encouraging, never shame-based.** Restriction alone gets uninstalled; the positive redirect is the whole thesis.
 - **The TUN interface must be released on stop.** A VPN service that leaks its interface throttles the user's phone after the app is closed.
@@ -103,6 +105,16 @@ the signals that distinguish a throttled surface from a normal one.
 (leave alone); in YouTube it is *Shorts* (throttle). Never match the substring
 `reel` across packages — always scope detection to the foreground package first.
 Getting this wrong throttles exactly the surface the user asked to keep normal.
+
+**Only count nodes where `isVisibleToUser` is true.** This is not an optimisation,
+it is correctness. Instagram keeps the Reels view pager alive in the tree while
+Stories is on screen, so an unfiltered walk finds `clips_*` ids during Stories and
+reports `REELS` — throttling Stories. Measured on device: filtering cut 43 ids to
+13 and flipped the verdict from `REELS` to the correct `NORMAL`.
+
+Note `uiautomator dump` will *not* reveal this trap, because it lists mostly
+visible nodes while `getRootInActiveWindow()` also returns cached offscreen ones.
+Verify detection from the service's own logs, never from a dump alone.
 
 Other measured facts:
 
@@ -149,6 +161,7 @@ GoodDeedScheduler (WorkManager) → Notification → CameraCapture
 | Permission | Notes |
 |---|---|
 | `PACKAGE_USAGE_STATS` | Done (Phase 1). See the gotcha below. |
+| `BIND_ACCESSIBILITY_SERVICE` | Done (Phase 2a). Enabled by the user in Settings only — adb cannot grant it on ColorOS. `flagReportViewIds` is mandatory or `viewIdResourceName` is always null and every rule silently stops matching. `packageNames` in the config is the privacy boundary. |
 | VPN consent | Not a manifest permission — triggered by `VpnService.prepare()`. Declare the service with `BIND_VPN_SERVICE`. |
 | `POST_NOTIFICATIONS` | Runtime, Android 13+ |
 | `CAMERA` | Standard runtime permission |
@@ -172,7 +185,9 @@ Build in this order. Verify each "Done when" before moving on. Commit after ever
 |---|---|---|
 | 0 | ~~Project setup (deps, minSdk bump)~~ | **Done** — builds, installs, launches clean |
 | 1 | ~~Usage tracking + usage-access deep link~~ | **Done** on emulator; the literal "a minute of Instagram" check still needs a real device with Instagram installed |
-| 2 | VPN throttle engine | Instagram is measurably slower than WhatsApp, same network, VPN active |
+| 2a | ~~Surface detection (AccessibilityService)~~ | **Done** — Reels/Shorts/Spotlight/browser-URL detected; Stories reported as NORMAL |
+| 2b | VPN passthrough, no delay | Traffic flows normally, connections attributed to the right app |
+| 2c | Throttle gated on surface | Instagram **Reels** measurably slower than Instagram **Stories**, same app and network; WhatsApp never affected |
 | 3 | Usage profile + adaptive intensity | Highest-usage app gets the strongest throttle, across two usage patterns |
 | 4 | Dashboard | Reflects real logged data, not placeholders |
 | 5 | Good deed challenge | Full loop — notification → photo → saved entry → dashboard — works end to end |
