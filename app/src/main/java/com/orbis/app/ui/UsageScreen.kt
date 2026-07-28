@@ -17,6 +17,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -37,6 +38,9 @@ data class TunnelUiState(
     val running: Boolean = false,
     val udpForwarded: Long = 0L,
     val tcpDropped: Long = 0L,
+    val packetsRead: Long = 0L,
+    val status: String = "idle",
+    val autoThrottle: Boolean = false,
 )
 
 @Composable
@@ -48,6 +52,7 @@ fun UsageScreen(
     onGrantUsageAccess: () -> Unit,
     onEnableDetection: () -> Unit,
     onToggleTunnel: () -> Unit,
+    onAutoThrottleChange: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -137,20 +142,18 @@ fun UsageScreen(
             fontWeight = FontWeight.Bold,
         )
         TunnelCard(
-            running = tunnel.running,
-            udpForwarded = tunnel.udpForwarded,
-            tcpDropped = tunnel.tcpDropped,
+            tunnel = tunnel,
             onToggle = onToggleTunnel,
+            onAutoThrottleChange = onAutoThrottleChange,
         )
     }
 }
 
 @Composable
 private fun TunnelCard(
-    running: Boolean,
-    udpForwarded: Long,
-    tcpDropped: Long,
+    tunnel: TunnelUiState,
     onToggle: () -> Unit,
+    onAutoThrottleChange: (Boolean) -> Unit,
 ) {
     Card {
         Column(
@@ -165,7 +168,7 @@ private fun TunnelCard(
             ) {
                 Text("Status", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    text = if (running) "running" else "stopped",
+                    text = if (tunnel.running) "running" else "stopped",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                 )
@@ -176,11 +179,30 @@ private fun TunnelCard(
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                text = "UDP forwarded: $udpForwarded   •   TCP dropped: $tcpDropped",
+                text = "read ${tunnel.packetsRead}  •  UDP fwd ${tunnel.udpForwarded}  " +
+                    "•  TCP dropped ${tunnel.tcpDropped}",
                 style = MaterialTheme.typography.bodySmall,
             )
+            Text(
+                text = tunnel.status,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Slow Reels/Shorts automatically",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Switch(checked = tunnel.autoThrottle, onCheckedChange = onAutoThrottleChange)
+            }
+
             Button(onClick = onToggle) {
-                Text(if (running) "Stop tunnel" else "Start tunnel")
+                Text(if (tunnel.running) "Stop tunnel" else "Start tunnel")
             }
         }
     }
@@ -293,6 +315,7 @@ private fun UsageScreenPreview() {
             onGrantUsageAccess = {},
             onEnableDetection = {},
             onToggleTunnel = {},
+            onAutoThrottleChange = {},
             onRefresh = {},
         )
     }

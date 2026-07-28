@@ -147,6 +147,13 @@ object Ipv4 {
         return (sum.inv() and 0xFFFF).toInt()
     }
 
+    fun toBytes(address: Int): ByteArray = byteArrayOf(
+        ((address shr 24) and 0xFF).toByte(),
+        ((address shr 16) and 0xFF).toByte(),
+        ((address shr 8) and 0xFF).toByte(),
+        (address and 0xFF).toByte(),
+    )
+
     fun readShort(data: ByteArray, offset: Int): Int =
         ((data[offset].toInt() and 0xFF) shl 8) or (data[offset + 1].toInt() and 0xFF)
 

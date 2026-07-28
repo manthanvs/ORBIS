@@ -1,9 +1,14 @@
 package com.orbis.app.surface
 
 import android.accessibilityservice.AccessibilityService
+import android.net.VpnService
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.orbis.app.throttle.ThrottleEngine
+import com.orbis.app.throttle.ThrottleSettings
+import com.orbis.app.usage.UsageProfile
+import com.orbis.app.vpn.OrbisVpnService
 
 /**
  * Watches the foreground screen and publishes the detected [Surface].
@@ -28,6 +33,7 @@ class OrbisAccessibilityService : AccessibilityService() {
     private var lastEvaluationMillis = 0L
     private var lastLoggedSurface: Surface? = null
     private var lastLoggedPackage: String? = null
+    private var normalSince = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -62,6 +68,42 @@ class OrbisAccessibilityService : AccessibilityService() {
         }
 
         SurfaceMonitor.publish(surface, activePackage, now)
+        applyThrottleGate(surface, now)
+    }
+
+    /**
+     * Brings the tunnel up only while a short-form feed is on screen, and takes it
+     * down again afterwards. Without this the tunnel would be slowing - and, for
+     * TCP and anything it cannot relay, breaking - traffic during DMs, Stories and
+     * ordinary browsing.
+     */
+    private fun applyThrottleGate(surface: Surface, nowMillis: Long) {
+        if (!ThrottleSettings.enabled.value) return
+        // Consent has never been granted, so starting would silently no-op.
+        if (VpnService.prepare(this) != null) return
+
+        val running = OrbisVpnService.isRunning.value
+
+        if (surface.throttled) {
+            normalSince = 0L
+            if (!running) {
+                val delay = ThrottleEngine.ruleFor(surface, UsageProfile.EMPTY).delayMillis
+                OrbisVpnService.start(this, delay)
+            }
+            return
+        }
+
+        if (!running) return
+
+        // Brief hysteresis: surfaces flicker as views recycle mid-scroll, and
+        // tearing the tunnel down and back up on every flicker is worse than
+        // leaving it up for another moment.
+        if (normalSince == 0L) {
+            normalSince = nowMillis
+        } else if (nowMillis - normalSince >= STOP_GRACE_MILLIS) {
+            normalSince = 0L
+            OrbisVpnService.stop(this)
+        }
     }
 
     override fun onInterrupt() = Unit
@@ -117,5 +159,8 @@ class OrbisAccessibilityService : AccessibilityService() {
 
         /** Cap on nodes visited per pass, so a deep tree cannot stall the UI. */
         const val MAX_NODES = 600
+
+        /** How long the surface must stay normal before the tunnel comes down. */
+        const val STOP_GRACE_MILLIS = 3_000L
     }
 }

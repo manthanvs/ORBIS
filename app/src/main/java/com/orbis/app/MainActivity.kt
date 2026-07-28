@@ -23,6 +23,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.orbis.app.surface.AccessibilityAccess
 import com.orbis.app.surface.SurfaceMonitor
+import com.orbis.app.throttle.ThrottleSettings
 import com.orbis.app.ui.TunnelUiState
 import com.orbis.app.ui.UsageScreen
 import com.orbis.app.ui.UsageViewModel
@@ -43,15 +44,21 @@ class MainActivity : ComponentActivity() {
                 val state by viewModel.state.collectAsStateWithLifecycle()
                 val detected by SurfaceMonitor.state.collectAsStateWithLifecycle()
                 val tunnelRunning by OrbisVpnService.isRunning.collectAsStateWithLifecycle()
+                val autoThrottle by ThrottleSettings.enabled.collectAsStateWithLifecycle()
                 var hasDetection by remember { mutableStateOf(false) }
-                var counters by remember { mutableStateOf(0L to 0L) }
+                var tunnelStats by remember { mutableStateOf(TunnelUiState()) }
 
-                // The service updates counters from its own threads, so poll them
+                // The service updates these from its own threads, so poll them
                 // rather than pretending they are reactive state.
                 LaunchedEffect(tunnelRunning) {
                     while (true) {
-                        counters = OrbisVpnService.udpPacketsForwarded to
-                            OrbisVpnService.tcpPacketsDropped
+                        tunnelStats = TunnelUiState(
+                            running = tunnelRunning,
+                            udpForwarded = OrbisVpnService.udpPacketsForwarded,
+                            tcpDropped = OrbisVpnService.tcpPacketsDropped,
+                            packetsRead = OrbisVpnService.packetsRead,
+                            status = OrbisVpnService.status,
+                        )
                         delay(1_000)
                     }
                 }
@@ -79,10 +86,9 @@ class MainActivity : ComponentActivity() {
                         state = state,
                         detected = detected,
                         hasDetection = hasDetection,
-                        tunnel = TunnelUiState(
+                        tunnel = tunnelStats.copy(
                             running = tunnelRunning,
-                            udpForwarded = counters.first,
-                            tcpDropped = counters.second,
+                            autoThrottle = autoThrottle,
                         ),
                         onGrantUsageAccess = {
                             context.startActivity(UsageAccess.settingsIntent())
@@ -101,6 +107,16 @@ class MainActivity : ComponentActivity() {
                                     OrbisVpnService.start(context)
                                 }
                             }
+                        },
+                        onAutoThrottleChange = { wanted ->
+                            // Consent must exist before the service can gate itself
+                            // on, so ask for it at the moment the user opts in.
+                            val consent = if (wanted) VpnService.prepare(context) else null
+                            if (consent != null) {
+                                consentLauncher.launch(consent)
+                            }
+                            ThrottleSettings.setEnabled(wanted)
+                            if (!wanted && tunnelRunning) OrbisVpnService.stop(context)
                         },
                         onRefresh = viewModel::refresh,
                         modifier = Modifier.padding(innerPadding),
