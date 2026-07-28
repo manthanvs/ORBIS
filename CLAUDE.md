@@ -87,6 +87,31 @@ These are design intent, not implementation detail. Do not relax them without as
 - **The TUN interface must be released on stop.** A VPN service that leaks its interface throttles the user's phone after the app is closed.
 - **Keep the throttle delay modest in development** (a few hundred ms). Cranking it up to make a demo obvious makes the app feel broken instead of intentional.
 
+## Surface-detection survey (measured on CPH2585, Android 16)
+
+Captured from live apps via `uiautomator dump` / `dumpsys activity top`. These are
+the signals that distinguish a throttled surface from a normal one.
+
+| App | Throttled surface | Signal | Leave normal |
+|---|---|---|---|
+| Instagram | Reels | `clips_viewer_view_pager`, `root_clips_layout`, `clips_video_container` | Stories = `reel_viewer_root` |
+| YouTube | Shorts | `reel_watch_fragment_root`, `reel_watch_player`, `reel_recycler`; content-desc `Shorts` | long-form watch UI |
+| Snapchat | Spotlight | `spotlight_container` | chats, Stories |
+| Browser | Shorts/Reels URLs | URL is readable as node text, e.g. `m.youtube.com/shorts/<id>` | any other URL |
+
+**`reel_*` means opposite things in the two apps.** In Instagram it is *Stories*
+(leave alone); in YouTube it is *Shorts* (throttle). Never match the substring
+`reel` across packages — always scope detection to the foreground package first.
+Getting this wrong throttles exactly the surface the user asked to keep normal.
+
+Other measured facts:
+
+- `instagram://reels` opens **Stories**, not Reels. Do not trust that deep link as a test fixture.
+- `https://www.youtube.com/shorts` opened in the **browser** (Edge), not the YouTube app — browser coverage is required for that case, not optional.
+- `uiautomator dump` fails with `could not get idle state` while a video plays. That is a limitation of the *tool*, not of an AccessibilityService, which receives pushed events and can call `getRootInActiveWindow()` at any time. Pause playback to capture.
+- Instagram/YouTube class and fragment names are obfuscated by R8; only **resource IDs** and **content-descriptions** are usable.
+- These IDs are unversioned app internals and will break when the apps redesign. Re-run this survey when detection stops firing.
+
 ## Target architecture
 
 ```
