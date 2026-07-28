@@ -57,6 +57,27 @@ class UsageRepository(
     }
 
     /**
+     * Daily totals for the short-form apps over the last [days], for the dashboard.
+     *
+     * Sums only [TargetApp.throttleable] — WhatsApp is measured but is not
+     * short-form content, so counting it would make messaging look like something
+     * to reclaim.
+     *
+     * Days with no rows are simply absent from the map. That distinction matters:
+     * `ReclaimedTime` treats a missing day as unknown rather than as zero usage.
+     */
+    suspend fun dailyHistory(days: Int): Map<LocalDate, Long> = withContext(Dispatchers.IO) {
+        val today = LocalDate.now(clock)
+        val start = today.minusDays((days - 1).toLong())
+        val shortForm = TargetApp.throttleable.map { it.packageName }.toSet()
+
+        dao.forDateRange(start.toString(), today.toString())
+            .filter { it.app in shortForm }
+            .groupBy { LocalDate.parse(it.date) }
+            .mapValues { (_, logs) -> logs.sumOf { it.durationMillis } }
+    }
+
+    /**
      * Today's persisted usage.
      *
      * The date is resolved when this is called, so a session left open across
