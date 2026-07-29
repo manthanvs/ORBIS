@@ -30,8 +30,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.orbis.app.surface.AccessibilityAccess
 import com.orbis.app.surface.SurfaceMonitor
 import com.orbis.app.throttle.ThrottleSettings
+import com.orbis.app.deed.GoodDeedScheduler
 import com.orbis.app.ui.DashboardScreen
 import com.orbis.app.ui.DashboardViewModel
+import com.orbis.app.ui.GoodDeedScreen
+import com.orbis.app.ui.GoodDeedViewModel
 import com.orbis.app.ui.TunnelUiState
 import com.orbis.app.ui.UsageScreen
 import com.orbis.app.ui.UsageViewModel
@@ -41,9 +44,16 @@ import com.orbis.app.vpn.OrbisVpnService
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        /** Set by the good-deed notification so the app opens on that tab. */
+        const val ACTION_GOOD_DEED = "com.orbis.app.action.GOOD_DEED"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThrottleSettings.init(this)
+        GoodDeedScheduler.schedule(this)
         enableEdgeToEdge()
         setContent {
             OrbisTheme {
@@ -60,7 +70,15 @@ class MainActivity : ComponentActivity() {
                 val dashboardViewModel: DashboardViewModel =
                     viewModel(factory = DashboardViewModel.factory(context))
                 val dashboardState by dashboardViewModel.state.collectAsStateWithLifecycle()
-                var tab by rememberSaveable { mutableIntStateOf(0) }
+
+                val deedViewModel: GoodDeedViewModel =
+                    viewModel(factory = GoodDeedViewModel.factory(context))
+                val deedState by deedViewModel.state.collectAsStateWithLifecycle()
+
+                // Tapping the good-deed notification should land on that tab.
+                var tab by rememberSaveable {
+                    mutableIntStateOf(if (intent?.action == ACTION_GOOD_DEED) 1 else 0)
+                }
 
                 // The service updates these from its own threads, so poll them
                 // rather than pretending they are reactive state.
@@ -108,12 +126,33 @@ class MainActivity : ComponentActivity() {
                             Tab(
                                 selected = tab == 1,
                                 onClick = { tab = 1 },
+                                text = { Text("Good deeds") },
+                            )
+                            Tab(
+                                selected = tab == 2,
+                                onClick = { tab = 2 },
                                 text = { Text("Controls") },
                             )
                         }
 
                         if (tab == 0) {
-                            DashboardScreen(state = dashboardState)
+                            DashboardScreen(
+                                state = dashboardState,
+                                hasUsageAccess = state.hasUsageAccess,
+                                onGrantUsageAccess = {
+                                    context.startActivity(UsageAccess.settingsIntent())
+                                },
+                            )
+                            return@Column
+                        }
+
+                        if (tab == 1) {
+                            GoodDeedScreen(
+                                state = deedState,
+                                onStartCapture = deedViewModel::startCapture,
+                                onCancelCapture = deedViewModel::cancelCapture,
+                                onSave = deedViewModel::save,
+                            )
                             return@Column
                         }
 

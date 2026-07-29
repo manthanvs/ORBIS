@@ -41,7 +41,11 @@ What exists:
 
 Measured behaviour: Reels detected → tunnel up with a usage-scaled delay (400 ms at ~1 h of Instagram), `read 1138 / UDP fwd 1045 / TCP dropped 77`. Browsers are routed too, so `youtube.com/shorts` in Chrome or Edge is throttled.
 
-Not built yet: **no dashboard trends (Phase 4), no good-deed challenge (Phase 5).** Room holds only `UsageLog` — `ThrottleRule` and `GoodDeedEntry` still need adding, with a version bump and migration. The tunnel is **not yet a foreground service**, so Android may kill it when ORBIS is backgrounded.
+- `com.orbis.app.dashboard` / `com.orbis.app.deed` — `ReclaimedTime` and `GoodDeedStreak` (both pure and unit-tested), `GoodDeedRepository`, `GoodDeedScheduler`, `DeedPhotoCapture`.
+
+All five phases are built. The database is at **version 2**; `MIGRATION_1_2` adds `good_deed`. There is deliberately **no `fallbackToDestructiveMigration`** — the usage history in this database is what the dashboard's baseline is computed from, so wiping it would silently destroy real data and reset "reclaimed time" to "still learning".
+
+`ThrottleRule` is still not an entity: throttle intensity is derived from usage at runtime by `ThrottleEngine`, so there is nothing to persist until rules become user-editable.
 
 Update this file as real structure lands.
 
@@ -194,8 +198,8 @@ Build in this order. Verify each "Done when" before moving on. Commit after ever
 | 2c | ~~Throttle gated on surface~~ | **Done** — tunnel only up during Reels/Shorts/Spotlight, usage-scaled delay (400 ms observed), WhatsApp absent from the tunnel's `Uids:` set. Side-by-side Reels-vs-Stories timing still worth doing if you want a number for the write-up. |
 | 3 | ~~Usage profile + adaptive intensity~~ | **Done** — `UsageProfileHolder` feeds real usage into `ThrottleEngine`; delay scales 120 ms → 400 ms with daily use |
 | 3 | Usage profile + adaptive intensity | Highest-usage app gets the strongest throttle, across two usage patterns |
-| 4 | Dashboard | Reflects real logged data, not placeholders |
-| 5 | Good deed challenge | Full loop — notification → photo → saved entry → dashboard — works end to end |
+| 4 | ~~Dashboard~~ | **Done** — reclaimed time vs the user's own baseline, 7-day trend |
+| 5 | ~~Good deed challenge~~ | **Done** — WorkManager prompt → camera → Room entry → streak. The full loop still wants one manual run-through on a device. |
 
 Phase 2 approach: domain matching **only** first, no delay, confirm connections are attributed to the right app. Add delay logic after. Explicitly test that WhatsApp traffic is never touched.
 

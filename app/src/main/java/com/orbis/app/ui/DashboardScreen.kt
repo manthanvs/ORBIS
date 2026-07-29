@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +36,8 @@ import java.util.Locale
 @Composable
 fun DashboardScreen(
     state: DashboardUiState,
+    hasUsageAccess: Boolean,
+    onGrantUsageAccess: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val summary = state.summary
@@ -51,6 +54,14 @@ fun DashboardScreen(
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
         )
+
+        // Without usage access nothing will ever load, so say so rather than
+        // spinning on "Working it out…" indefinitely. Reinstalling the app revokes
+        // this permission, which is exactly how that dead end gets reached.
+        if (!hasUsageAccess) {
+            NeedsUsageAccessCard(onGrantUsageAccess)
+            return@Column
+        }
 
         if (summary == null) {
             Text(
@@ -82,6 +93,31 @@ private const val MIN_CHART_DAYS = 2
 
 /** Keeps two or three bars looking like bars instead of stretching into slabs. */
 private val MAX_BAR_WIDTH = 56.dp
+
+@Composable
+private fun NeedsUsageAccessCard(onGrant: () -> Unit) {
+    Card {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Usage access is off",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "ORBIS can't measure your screen time without it, so there's " +
+                    "nothing to show here yet. Reinstalling the app turns this " +
+                    "permission back off — find ORBIS in the list and switch it on.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(onClick = onGrant) { Text("Open Settings") }
+        }
+    }
+}
 
 @Composable
 private fun TodayOnlyCard(todayMillis: Long) {
@@ -320,6 +356,8 @@ private fun DashboardPreview() {
     val today = LocalDate.of(2026, 7, 29)
     OrbisTheme {
         DashboardScreen(
+            hasUsageAccess = true,
+            onGrantUsageAccess = {},
             state = DashboardUiState(
                 loading = false,
                 summary = ReclaimedSummary(

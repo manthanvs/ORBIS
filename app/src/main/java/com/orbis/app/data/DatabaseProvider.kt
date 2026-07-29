@@ -22,6 +22,11 @@ object DatabaseProvider {
                 context.applicationContext,
                 OrbisDatabase::class.java,
                 DATABASE_NAME,
-            ).build().also { instance = it }
+            )
+                // Deliberately no fallbackToDestructiveMigration: the usage history
+                // in here is what the dashboard baseline is built from.
+                .addMigrations(OrbisDatabase.MIGRATION_1_2)
+                .build()
+                .also { instance = it }
         }
 }

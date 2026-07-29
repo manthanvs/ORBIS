@@ -34,8 +34,26 @@ class DashboardScreenTest {
         },
     )
 
-    private fun show(state: DashboardUiState) {
-        compose.setContent { OrbisTheme { DashboardScreen(state = state) } }
+    private fun show(state: DashboardUiState, hasUsageAccess: Boolean = true) {
+        compose.setContent {
+            OrbisTheme {
+                DashboardScreen(
+                    state = state,
+                    hasUsageAccess = hasUsageAccess,
+                    onGrantUsageAccess = {},
+                )
+            }
+        }
+    }
+
+    @Test
+    fun withoutUsageAccessItSaysSoRatherThanSpinning() {
+        // Reinstalling revokes usage access, and refresh() is then never called -
+        // so an indefinite "Working it out…" is a dead end, not a loading state.
+        show(DashboardUiState(loading = true, summary = null), hasUsageAccess = false)
+
+        compose.onNodeWithText("Usage access is off").assertIsDisplayed()
+        compose.onNodeWithText("Working it out…").assertDoesNotExist()
     }
 
     @Test
