@@ -2,6 +2,7 @@ package com.orbis.app.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -34,7 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -57,9 +58,27 @@ fun GoodDeedScreen(
     onStartCapture: () -> Unit,
     onCancelCapture: (String?) -> Unit,
     onSave: (String?, String) -> Unit,
+    onSendTestPrompt: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+
+    // POST_NOTIFICATIONS is denied by default on Android 13+. Declaring it in the
+    // manifest is not enough: without asking, GoodDeedWorker's permission check
+    // fails and the prompt silently never appears.
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* Declining is fine - the in-app tab still works. */ }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     var hasCamera by remember {
         mutableStateOf(
             androidx.core.content.ContextCompat.checkSelfPermission(
@@ -104,6 +123,12 @@ fun GoodDeedScreen(
 
         state.message?.let {
             Text(text = it, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        // The real prompt is daily, so without this the loop cannot be checked
+        // without waiting a day.
+        OutlinedButton(onClick = onSendTestPrompt) {
+            Text("Send a test prompt now")
         }
 
         if (state.entries.isNotEmpty()) {
@@ -279,8 +304,6 @@ private fun CaptureSheet(
             }
         }
     }
-
-    LaunchedEffect(Unit) { /* keeps the sheet composed while capture runs */ }
 }
 
 @Preview(showBackground = true)
@@ -298,6 +321,7 @@ private fun GoodDeedPreview() {
             onStartCapture = {},
             onCancelCapture = {},
             onSave = { _, _ -> },
+            onSendTestPrompt = {},
         )
     }
 }

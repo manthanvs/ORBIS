@@ -16,7 +16,4 @@ interface GoodDeedDao {
 
     @Query("SELECT * FROM good_deed WHERE completed = 1 ORDER BY timestampMillis DESC")
     suspend fun completed(): List<GoodDeedEntry>
-
-    @Query("SELECT COUNT(*) FROM good_deed WHERE completed = 1")
-    suspend fun completedCount(): Int
 }

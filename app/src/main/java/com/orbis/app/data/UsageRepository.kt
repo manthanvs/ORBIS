@@ -77,16 +77,4 @@ class UsageRepository(
             .mapValues { (_, logs) -> logs.sumOf { it.durationMillis } }
     }
 
-    /**
-     * Today's persisted usage.
-     *
-     * The date is resolved when this is called, so a session left open across
-     * midnight keeps observing the previous day until the flow is recollected.
-     */
-    fun observeToday(): Flow<UsageProfile> {
-        val date = LocalDate.now(clock).toString()
-        return dao.observeForDate(date).map { logs ->
-            UsageProfile.from(logs.associate { it.app to it.durationMillis })
-        }
-    }
 }

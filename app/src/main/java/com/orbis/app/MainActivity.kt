@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -117,7 +117,7 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Column(modifier = Modifier.padding(innerPadding)) {
-                        TabRow(selectedTabIndex = tab) {
+                        PrimaryTabRow(selectedTabIndex = tab) {
                             Tab(
                                 selected = tab == 0,
                                 onClick = { tab = 0 },
@@ -152,6 +152,7 @@ class MainActivity : ComponentActivity() {
                                 onStartCapture = deedViewModel::startCapture,
                                 onCancelCapture = deedViewModel::cancelCapture,
                                 onSave = deedViewModel::save,
+                                onSendTestPrompt = { GoodDeedScheduler.promptNow(context) },
                             )
                             return@Column
                         }
