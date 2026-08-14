@@ -1,0 +1,41 @@
+<!--
+    The themed-icon layer (Android 13+).
+
+    The system throws away these colours and tints the shape with the user's
+    wallpaper palette, so this must be a flat silhouette - the previous icon
+    pointed <monochrome> at the full-colour foreground, which is why a themed
+    launcher rendered it as an indistinct blob.
+
+    Same geometry as the foreground with two adjustments for a single-tone
+    render: a slightly heavier ring, because a hairline disappears once tinted
+    against a low-contrast themed background, and a slightly larger body so it
+    still reads as a distinct node on the path rather than a nick in the stroke.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108"
+    android:tint="#FF000000">
+
+    <group
+        android:name="orbit"
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="-28">
+
+        <path
+            android:pathData="M27,54 a27,9.5 0 1,0 54,0 a27,9.5 0 1,0 -54,0"
+            android:strokeColor="#FF000000"
+            android:strokeWidth="6"
+            android:strokeLineCap="round" />
+
+        <path
+            android:pathData="M75.5,54 a5.5,5.5 0 1,0 11,0 a5.5,5.5 0 1,0 -11,0"
+            android:fillColor="#FF000000" />
+    </group>
+
+    <path
+        android:pathData="M43.5,54 a10.5,10.5 0 1,0 21,0 a10.5,10.5 0 1,0 -21,0"
+        android:fillColor="#FF000000" />
+</vector>

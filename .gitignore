@@ -67,3 +67,7 @@ Thumbs.db
 
 # Kotlin
 .kotlin/
+
+# Python bytecode from tools/
+__pycache__/
+*.pyc

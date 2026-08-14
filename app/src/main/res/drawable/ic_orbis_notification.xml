@@ -1,7 +1,25 @@
 <!--
-    Notification small icons are drawn as a silhouette, so this is a single
-    opaque path on a transparent background - anything with colour or detail
-    would render as a white blob.
+    Notification small icon: the orbit path and its body, as a silhouette.
+
+    The status bar draws small icons as a single flat shape - only the alpha
+    channel survives - so this carries no colour and no detail that would turn
+    into a smudge at ~18px.
+
+    Redrawn from the launcher mark rather than kept as the old ring-with-a-bar,
+    which read as "prohibited" at a glance. ORBIS slows short-form video; it does
+    not block anything, and an ongoing notification that looks like a ban sign
+    says the opposite.
+
+    Deliberately drops the centre orb that the launcher icon has. Rendered at
+    18px in one colour, an orb wide enough to occlude the ring fills the hole and
+    the whole mark collapses into an indistinct lozenge; the open ring is the
+    only part that survives the downscale. Shrinking the orb instead re-creates
+    the eye reading the launcher mark was shaped to avoid - a small dot centred
+    in an open ring is a pupil. So the glyph keeps the tilt, the ring and the
+    node, and lets the orb go.
+
+    Proportions are also heavier than a straight scale of the 108dp mark: a
+    5:27 stroke vanishes at status-bar size.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
@@ -9,7 +27,20 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFFFF">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8zM7,11h10v2L7,13z" />
+
+    <group
+        android:pivotX="12"
+        android:pivotY="12"
+        android:rotation="-28">
+
+        <path
+            android:pathData="M2.5,12 a9.5,4.6 0 1,0 19,0 a9.5,4.6 0 1,0 -19,0"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="2.2"
+            android:strokeLineCap="round" />
+
+        <path
+            android:pathData="M19.6,12 a1.9,1.9 0 1,0 3.8,0 a1.9,1.9 0 1,0 -3.8,0"
+            android:fillColor="#FFFFFFFF" />
+    </group>
 </vector>
