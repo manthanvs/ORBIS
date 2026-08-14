@@ -30,28 +30,19 @@ local.properties
 # Android Studio captures folder
 captures/
 
-# IntelliJ
+# IntelliJ / Android Studio
+#
+# The whole directory, rather than the file-by-file list this used to carry.
+# That list was the old project template and it had already fallen behind what
+# Studio writes - .name, AndroidProjectSystem.xml, codeStyles/, misc.xml,
+# runConfigurations.xml and studiobot.xml all escaped it - so `.idea` kept
+# reappearing as untracked. Enumerating them again only defers the same problem
+# to the next Studio release.
+#
+# Nothing in here is shared. If the project ever wants a common code style,
+# un-ignore .idea/codeStyles/ specifically rather than reopening the list.
 *.iml
-.idea/caches
-.idea/libraries
-.idea/modules.xml
-.idea/workspace.xml
-.idea/navEditor.xml
-.idea/assetWizardSettings.xml
-.idea/dictionaries
-.idea/vcs.xml
-.idea/jsLibraryMappings.xml
-.idea/datasources.xml
-.idea/dataSources/
-.idea/sqlDataSources.xml
-.idea/dynamic.xml
-.idea/uiDesigner.xml
-.idea/dbnavigator.xml
-.idea/gradle.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/deploymentTargetSelector.xml
-.idea/render.experimental.xml
+.idea/
 
 # Keystore files
 *.jks
