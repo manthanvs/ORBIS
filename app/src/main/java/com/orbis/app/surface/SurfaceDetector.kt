@@ -52,6 +52,33 @@ object SurfaceDetector {
         RegexOption.IGNORE_CASE,
     )
 
+    /**
+     * The fully-qualified view ids worth looking for in [packageName], or null
+     * when the package is not identified by ids at all (browsers are identified
+     * by the URL text instead).
+     *
+     * Lets the accessibility service ask the framework for these ids directly
+     * instead of walking the whole node tree and reporting back everything it
+     * finds. The rules themselves stay here, so there is still one place that
+     * decides what counts as a throttled surface.
+     */
+    fun candidateIdsFor(packageName: String): List<String>? = CANDIDATE_IDS[packageName]
+
+    private fun Set<String>.qualifiedFor(packageName: String): List<String> =
+        map { "$packageName:id/$it" }
+
+    private val CANDIDATE_IDS: Map<String, List<String>> = mapOf(
+        TargetApp.INSTAGRAM.packageName to
+            INSTAGRAM_REELS_IDS.qualifiedFor(TargetApp.INSTAGRAM.packageName),
+        TargetApp.YOUTUBE.packageName to
+            YOUTUBE_SHORTS_IDS.qualifiedFor(TargetApp.YOUTUBE.packageName),
+        TargetApp.SNAPCHAT.packageName to
+            SNAPCHAT_SPOTLIGHT_IDS.qualifiedFor(TargetApp.SNAPCHAT.packageName),
+    )
+
+    /** True when [text] contains a short-video URL. Used for browser address bars. */
+    fun isShortVideoUrl(text: String): Boolean = SHORT_VIDEO_URL.containsMatchIn(text)
+
     fun detect(signals: SurfaceSignals): Surface = when (signals.packageName) {
         TargetApp.INSTAGRAM.packageName ->
             signals.matches(INSTAGRAM_REELS_IDS).toSurface(Surface.REELS)

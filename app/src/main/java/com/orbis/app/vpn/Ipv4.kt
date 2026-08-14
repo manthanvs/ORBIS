@@ -51,6 +51,23 @@ object Ipv4 {
         }
     }
 
+    /**
+     * A parsed datagram expressed as offsets into the caller's buffer.
+     *
+     * The relay keeps one of these per thread and refills it, so parsing a packet
+     * costs nothing. [UdpDatagram] copies the payload out instead, which at video
+     * bitrates was the single largest source of garbage in the app - a ~1.4 KB
+     * array per packet, thousands of packets a second.
+     */
+    class UdpView {
+        var sourceAddress: Int = 0
+        var destinationAddress: Int = 0
+        var sourcePort: Int = 0
+        var destinationPort: Int = 0
+        var payloadOffset: Int = 0
+        var payloadLength: Int = 0
+    }
+
     /** @return null when [length] does not hold a well-formed IPv4 header. */
     fun parseHeader(packet: ByteArray, length: Int): Header? {
         if (length < MIN_HEADER_BYTES) return null
@@ -73,25 +90,45 @@ object Ipv4 {
         )
     }
 
-    fun parseUdp(packet: ByteArray, length: Int): UdpDatagram? {
-        val header = parseHeader(packet, length) ?: return null
-        if (header.protocol != PROTOCOL_UDP) return null
-        if (header.totalLength < header.headerBytes + UDP_HEADER_BYTES) return null
+    /**
+     * Fills [into] with offsets into [packet] rather than copying anything.
+     *
+     * @return false when this is not a well-formed IPv4 UDP datagram.
+     */
+    fun parseUdpInto(packet: ByteArray, length: Int, into: UdpView): Boolean {
+        val header = parseHeader(packet, length) ?: return false
+        if (header.protocol != PROTOCOL_UDP) return false
+        if (header.totalLength < header.headerBytes + UDP_HEADER_BYTES) return false
 
         val udpStart = header.headerBytes
         val udpLength = readShort(packet, udpStart + 4)
-        if (udpLength < UDP_HEADER_BYTES) return null
+        if (udpLength < UDP_HEADER_BYTES) return false
 
         val payloadLength = minOf(udpLength, header.totalLength - udpStart) - UDP_HEADER_BYTES
-        if (payloadLength < 0) return null
+        if (payloadLength < 0) return false
 
-        val payloadStart = udpStart + UDP_HEADER_BYTES
+        into.sourceAddress = header.sourceAddress
+        into.destinationAddress = header.destinationAddress
+        into.sourcePort = readShort(packet, udpStart)
+        into.destinationPort = readShort(packet, udpStart + 2)
+        into.payloadOffset = udpStart + UDP_HEADER_BYTES
+        into.payloadLength = payloadLength
+        return true
+    }
+
+    fun parseUdp(packet: ByteArray, length: Int): UdpDatagram? {
+        val view = UdpView()
+        if (!parseUdpInto(packet, length, view)) return null
+
         return UdpDatagram(
-            sourceAddress = header.sourceAddress,
-            destinationAddress = header.destinationAddress,
-            sourcePort = readShort(packet, udpStart),
-            destinationPort = readShort(packet, udpStart + 2),
-            payload = packet.copyOfRange(payloadStart, payloadStart + payloadLength),
+            sourceAddress = view.sourceAddress,
+            destinationAddress = view.destinationAddress,
+            sourcePort = view.sourcePort,
+            destinationPort = view.destinationPort,
+            payload = packet.copyOfRange(
+                view.payloadOffset,
+                view.payloadOffset + view.payloadLength,
+            ),
         )
     }
 
@@ -106,26 +143,64 @@ object Ipv4 {
         destinationPort: Int,
         payload: ByteArray,
     ): ByteArray {
-        val totalLength = MIN_HEADER_BYTES + UDP_HEADER_BYTES + payload.size
-        val packet = ByteArray(totalLength)
+        val packet = ByteArray(MIN_HEADER_BYTES + UDP_HEADER_BYTES + payload.size)
+        buildUdpInto(
+            out = packet,
+            sourceAddress = sourceAddress,
+            destinationAddress = destinationAddress,
+            sourcePort = sourcePort,
+            destinationPort = destinationPort,
+            payload = payload,
+            payloadOffset = 0,
+            payloadLength = payload.size,
+        )
+        return packet
+    }
 
-        packet[0] = 0x45                       // IPv4, 5-word header
-        writeShort(packet, 2, totalLength)
-        packet[8] = 64                         // TTL
-        packet[9] = PROTOCOL_UDP.toByte()
-        writeInt(packet, 12, sourceAddress)
-        writeInt(packet, 16, destinationAddress)
-        writeShort(packet, 10, checksum(packet, 0, MIN_HEADER_BYTES))
+    /**
+     * Writes the same packet into a caller-owned buffer, so the relay can reuse
+     * one output buffer for every reply instead of allocating per packet.
+     *
+     * Every header byte is written explicitly, including the zeroed ones: [out]
+     * is reused and therefore holds the previous packet's bytes on entry.
+     *
+     * @return the total packet length written at offset 0.
+     */
+    fun buildUdpInto(
+        out: ByteArray,
+        sourceAddress: Int,
+        destinationAddress: Int,
+        sourcePort: Int,
+        destinationPort: Int,
+        payload: ByteArray,
+        payloadOffset: Int,
+        payloadLength: Int,
+    ): Int {
+        val totalLength = MIN_HEADER_BYTES + UDP_HEADER_BYTES + payloadLength
+        require(out.size >= totalLength) { "buffer too small for $totalLength bytes" }
+
+        out[0] = 0x45                          // IPv4, 5-word header
+        out[1] = 0                             // DSCP / ECN
+        writeShort(out, 2, totalLength)
+        writeShort(out, 4, 0)                  // identification
+        writeShort(out, 6, 0)                  // flags / fragment offset
+        out[8] = 64                            // TTL
+        out[9] = PROTOCOL_UDP.toByte()
+        writeShort(out, 10, 0)                 // checksum, zeroed before computing
+        writeInt(out, 12, sourceAddress)
+        writeInt(out, 16, destinationAddress)
+        writeShort(out, 10, checksum(out, 0, MIN_HEADER_BYTES))
 
         val udpStart = MIN_HEADER_BYTES
-        writeShort(packet, udpStart, sourcePort)
-        writeShort(packet, udpStart + 2, destinationPort)
-        writeShort(packet, udpStart + 4, UDP_HEADER_BYTES + payload.size)
-        payload.copyInto(packet, udpStart + UDP_HEADER_BYTES)
+        writeShort(out, udpStart, sourcePort)
+        writeShort(out, udpStart + 2, destinationPort)
+        writeShort(out, udpStart + 4, UDP_HEADER_BYTES + payloadLength)
         // UDP checksum is optional over IPv4; 0 means "not computed". Leaving it
         // zero keeps this simple and is accepted by the stack.
+        writeShort(out, udpStart + 6, 0)
+        payload.copyInto(out, udpStart + UDP_HEADER_BYTES, payloadOffset, payloadOffset + payloadLength)
 
-        return packet
+        return totalLength
     }
 
     /** Standard one's-complement internet checksum (RFC 1071). */

@@ -14,10 +14,23 @@ data class AppUsage(
 data class UsageProfile(
     val entries: List<AppUsage>,
 ) {
-    val totalMillis: Long get() = entries.sumOf { it.durationMillis }
+    // Computed once. Both of these are read from the accessibility service's hot
+    // path and from composables, where a getter would recompute per recomposition.
+    val totalMillis: Long by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        entries.sumOf { it.durationMillis }
+    }
 
-    fun durationOf(app: TargetApp): Long =
-        entries.firstOrNull { it.app == app }?.durationMillis ?: 0L
+    private val byApp: Map<TargetApp, Long> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        entries.associate { it.app to it.durationMillis }
+    }
+
+    fun durationOf(app: TargetApp): Long = byApp[app] ?: 0L
+
+    /** This app's share of today's tracked time, 0f..1f. */
+    fun shareOf(app: TargetApp): Float {
+        val total = totalMillis
+        return if (total <= 0L) 0f else durationOf(app).toFloat() / total
+    }
 
     /**
      * The heaviest app the throttle engine is actually allowed to act on.

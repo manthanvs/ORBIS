@@ -1,6 +1,7 @@
 package com.orbis.app.data
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -8,8 +9,15 @@ import androidx.room.PrimaryKey
  *
  * [photoPath] points at app-private storage, never shared storage - that keeps the
  * feature clear of broad storage permissions entirely.
+ *
+ * Both queries against this table filter on [completed] and order by
+ * [timestampMillis]; the index lets SQLite satisfy them without a full scan and a
+ * temporary sort.
  */
-@Entity(tableName = "good_deed")
+@Entity(
+    tableName = "good_deed",
+    indices = [Index(value = ["completed", "timestampMillis"])],
+)
 data class GoodDeedEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val timestampMillis: Long,

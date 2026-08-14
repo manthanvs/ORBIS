@@ -10,6 +10,12 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
+/** What the deed screen needs to know, derived in one pass over the log. */
+data class GoodDeedSummary(
+    val streak: Int = 0,
+    val doneToday: Boolean = false,
+)
+
 class GoodDeedRepository(
     private val dao: GoodDeedDao,
     private val zone: ZoneId = ZoneId.systemDefault(),
@@ -28,15 +34,29 @@ class GoodDeedRepository(
         )
     }
 
-    suspend fun streak(today: LocalDate = LocalDate.now(zone)): Int = withContext(Dispatchers.IO) {
-        GoodDeedStreak.current(completedDates(), today)
+    /**
+     * Streak and "done today" from a single pass.
+     *
+     * They were computed independently, and each read the whole `good_deed` table
+     * and mapped every row through `Instant`/`ZonedDateTime`. Since the ViewModel
+     * recomputes on every emission of [observeAll], that was two full-table reads
+     * per insert.
+     */
+    fun summarize(
+        entries: List<GoodDeedEntry>,
+        today: LocalDate = LocalDate.now(zone),
+    ): GoodDeedSummary {
+        val dates = HashSet<LocalDate>(entries.size)
+        entries.forEach { if (it.completed) dates += it.localDate() }
+
+        return GoodDeedSummary(
+            streak = GoodDeedStreak.current(dates, today),
+            doneToday = GoodDeedStreak.doneToday(dates, today),
+        )
     }
 
-    suspend fun doneToday(today: LocalDate = LocalDate.now(zone)): Boolean =
-        withContext(Dispatchers.IO) { GoodDeedStreak.doneToday(completedDates(), today) }
-
-    private suspend fun completedDates(): List<LocalDate> =
-        dao.completed().map { it.localDate() }
+    suspend fun summary(today: LocalDate = LocalDate.now(zone)): GoodDeedSummary =
+        withContext(Dispatchers.IO) { summarize(dao.completed(), today) }
 
     private fun GoodDeedEntry.localDate(): LocalDate =
         Instant.ofEpochMilli(timestampMillis).atZone(zone).toLocalDate()

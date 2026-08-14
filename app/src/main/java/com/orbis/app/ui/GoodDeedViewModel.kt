@@ -34,17 +34,26 @@ class GoodDeedViewModel(
     init {
         viewModelScope.launch {
             repository.observeAll().collect { entries ->
-                _state.update { it.copy(entries = entries) }
-                refreshStreak()
+                // The streak is derived from the rows we were just handed rather
+                // than re-read from the database - the query behind observeAll
+                // already returned everything it needs.
+                val summary = repository.summarize(entries)
+                _state.update {
+                    it.copy(
+                        entries = entries,
+                        streak = summary.streak,
+                        doneToday = summary.doneToday,
+                    )
+                }
             }
         }
     }
 
+    /** For a date rollover: the rows are unchanged but "today" is not. */
     fun refreshStreak() {
         viewModelScope.launch {
-            _state.update {
-                it.copy(streak = repository.streak(), doneToday = repository.doneToday())
-            }
+            val summary = repository.summarize(_state.value.entries)
+            _state.update { it.copy(streak = summary.streak, doneToday = summary.doneToday) }
         }
     }
 

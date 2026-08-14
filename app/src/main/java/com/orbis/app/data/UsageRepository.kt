@@ -1,13 +1,15 @@
 package com.orbis.app.data
 
+import android.content.Context
+import android.os.SystemClock
 import com.orbis.app.usage.ForegroundTimeCalculator
 import com.orbis.app.usage.TargetApp
 import com.orbis.app.usage.UsageProfile
 import com.orbis.app.usage.UsageProfileHolder
 import com.orbis.app.usage.UsageStatsSource
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.Clock
 import java.time.LocalDate
@@ -25,35 +27,76 @@ class UsageRepository(
     private val clock: Clock = Clock.systemDefaultZone(),
 ) {
 
+    /** Serialises refreshes so two callers cannot race on the same day's rows. */
+    private val refreshLock = Mutex()
+
+    private var cachedProfile: UsageProfile? = null
+    private var cachedAtMillis = 0L
+    private var cachedDate: LocalDate? = null
+
     /**
      * Recomputes today's totals from the event stream and writes them.
      *
      * Every tracked app is written, including those with zero time, so the
      * dashboard can distinguish "not used today" from "never measured".
+     *
+     * Results are cached for [CACHE_TTL_MILLIS]. Both ViewModels and the
+     * accessibility service refresh on their own schedule, and a resume used to
+     * fire two full-day `queryEvents` scans concurrently, each followed by four
+     * writes to the same rows.
+     *
+     * @param force skips the cache, for an explicit pull-to-refresh.
      */
-    suspend fun refreshToday(): UsageProfile = withContext(Dispatchers.IO) {
+    suspend fun refreshToday(force: Boolean = false): UsageProfile = refreshLock.withLock {
         val today = LocalDate.now(clock)
-        val startOfDay = today.atStartOfDay(clock.zone).toInstant().toEpochMilli()
-        val now = clock.millis()
+        val now = SystemClock.elapsedRealtime()
 
-        val totals = ForegroundTimeCalculator.totalsByPackage(
-            events = source.eventsBetween(startOfDay, now),
-            windowStartMillis = startOfDay,
-            windowEndMillis = now,
-        )
-
-        val date = today.toString()
-        TargetApp.entries.forEach { app ->
-            dao.upsert(
-                UsageLog(
-                    app = app.packageName,
-                    date = date,
-                    durationMillis = totals[app.packageName] ?: 0L,
-                )
-            )
+        if (!force) {
+            val cached = cachedProfile
+            if (
+                cached != null &&
+                cachedDate == today &&
+                now - cachedAtMillis < CACHE_TTL_MILLIS
+            ) {
+                return@withLock cached
+            }
         }
 
-        UsageProfile.from(totals).also(UsageProfileHolder::publish)
+        val profile = withContext(Dispatchers.IO) {
+            val startOfDay = today.atStartOfDay(clock.zone).toInstant().toEpochMilli()
+            val endOfWindow = clock.millis()
+
+            val totals = ForegroundTimeCalculator.totalsByPackage(
+                // Only the apps ORBIS reports on; the raw stream carries every
+                // app on the device.
+                events = source.eventsBetween(
+                    startOfDay,
+                    endOfWindow,
+                    packages = TargetApp.packageNames,
+                ),
+                windowStartMillis = startOfDay,
+                windowEndMillis = endOfWindow,
+            )
+
+            val date = today.toString()
+            dao.upsertAll(
+                TargetApp.entries.map { app ->
+                    UsageLog(
+                        app = app.packageName,
+                        date = date,
+                        durationMillis = totals[app.packageName] ?: 0L,
+                    )
+                }
+            )
+
+            UsageProfile.from(totals)
+        }
+
+        cachedProfile = profile
+        cachedAtMillis = now
+        cachedDate = today
+        UsageProfileHolder.publish(profile)
+        profile
     }
 
     /**
@@ -69,12 +112,50 @@ class UsageRepository(
     suspend fun dailyHistory(days: Int): Map<LocalDate, Long> = withContext(Dispatchers.IO) {
         val today = LocalDate.now(clock)
         val start = today.minusDays((days - 1).toLong())
-        val shortForm = TargetApp.throttleable.map { it.packageName }.toSet()
+        val shortForm = TargetApp.throttleable.map { it.packageName }
 
-        dao.forDateRange(start.toString(), today.toString())
-            .filter { it.app in shortForm }
-            .groupBy { LocalDate.parse(it.date) }
-            .mapValues { (_, logs) -> logs.sumOf { it.durationMillis } }
+        dao.dailyTotals(start.toString(), today.toString(), shortForm)
+            .associate { LocalDate.parse(it.date) to it.totalMillis }
     }
 
+    /**
+     * Discards history the dashboard can no longer show.
+     *
+     * Cheap and rare, but nothing pruned this table before and it grows for as
+     * long as the app is installed.
+     */
+    suspend fun pruneHistory(keepDays: Int) = withContext(Dispatchers.IO) {
+        val cutoff = LocalDate.now(clock).minusDays(keepDays.toLong())
+        dao.deleteBefore(cutoff.toString())
+    }
+
+    companion object {
+        /**
+         * Long enough to collapse the burst of refreshes a resume triggers, short
+         * enough that the number on screen still tracks a live session.
+         */
+        const val CACHE_TTL_MILLIS = 20_000L
+
+        /** History older than this cannot appear on any screen. */
+        const val RETENTION_DAYS = 60
+
+        @Volatile
+        private var instance: UsageRepository? = null
+
+        /**
+         * The one repository for the process.
+         *
+         * Each ViewModel used to build its own, so nothing was ever shared or
+         * cached and every resume re-scanned the whole day twice over.
+         */
+        fun shared(context: Context): UsageRepository {
+            val appContext = context.applicationContext
+            return instance ?: synchronized(this) {
+                instance ?: UsageRepository(
+                    source = UsageStatsSource.from(appContext),
+                    dao = DatabaseProvider.get(appContext).usageLogDao(),
+                ).also { instance = it }
+            }
+        }
+    }
 }

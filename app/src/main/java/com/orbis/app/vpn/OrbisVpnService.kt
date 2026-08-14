@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import com.orbis.app.R
 import com.orbis.app.surface.BrowserPackages
@@ -19,13 +20,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.net.DatagramPacket
-import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.nio.Buffer
+import java.nio.ByteBuffer
+import java.nio.channels.DatagramChannel
+import java.nio.channels.SelectionKey
+import java.nio.channels.Selector
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.DelayQueue
+import java.util.concurrent.Delayed
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
 /**
@@ -43,21 +51,104 @@ import kotlin.concurrent.thread
  *  - TCP is counted and dropped. That is survivable only because the tunnel is
  *    meant to be up solely while a throttled surface is on screen.
  *
- * The delay is applied by *scheduling* each packet, never by sleeping in the read
+ * The delay is applied by *deferring* each packet, never by sleeping in the read
  * loop - blocking there would serialise every flow and turn a 120 ms delay into a
  * near-total stall.
+ *
+ * ### Threading
+ *
+ * Exactly three threads, regardless of how many conversations are in flight:
+ *
+ *  - **orbis-tun** reads the TUN, parses in place, and either sends immediately
+ *    or hands the packet to the delay queue.
+ *  - **orbis-select** owns the [Selector]: it registers new flows, drains
+ *    replies back into the TUN, evicts idle flows and publishes [stats]. It is
+ *    the only thread that writes to the tunnel, so no lock is needed.
+ *  - **orbis-delay** drains the [DelayQueue] once each packet is due.
+ *
+ * An earlier version ran a thread and a blocking [java.net.DatagramSocket] per
+ * flow with no eviction, which meant hundreds of threads and file descriptors
+ * after a few minutes of scrolling - browsers are routed too, so every DNS
+ * lookup and every CDN connection opened another one.
  */
 class OrbisVpnService : VpnService() {
 
-    private class Flow(
-        val socket: DatagramSocket,
-        val buildReply: (ByteArray) -> ByteArray,
-    )
+    /**
+     * One UDP conversation, pinned to a connected [DatagramChannel].
+     *
+     * The tunnel-side addresses are captured once, at open, so building a reply
+     * needs nothing from the inbound packet but its payload.
+     */
+    private class UdpFlow(
+        val key: Long,
+        val channel: DatagramChannel,
+        val ipv6: Boolean,
+        /** The app's own address; the destination of every reply. */
+        val localAddressV4: Int,
+        /** The remote peer; the source of every reply. */
+        val remoteAddressV4: Int,
+        val localAddressV6: ByteArray?,
+        val remoteAddressV6: ByteArray?,
+        val localPort: Int,
+        val remotePort: Int,
+    ) {
+        @Volatile
+        var lastUsedMillis: Long = 0L
+
+        @Volatile
+        var closed: Boolean = false
+
+        /** Payload offset of a reply, i.e. where its headers stop. */
+        val replyHeaderBytes: Int =
+            if (ipv6) Ipv6.HEADER_BYTES + UDP_HEADER_BYTES else IPV4_HEADER_BYTES + UDP_HEADER_BYTES
+
+        /**
+         * IPv6 keys fold a 128-bit address into 32 bits, so a hit has to be
+         * confirmed against the full address before the flow is reused.
+         */
+        fun matchesV6(packet: ByteArray, offset: Int): Boolean {
+            val expected = remoteAddressV6 ?: return false
+            for (index in 0 until Ipv6.ADDRESS_BYTES) {
+                if (expected[index] != packet[offset + index]) return false
+            }
+            return true
+        }
+    }
+
+    /**
+     * A packet waiting out its throttle delay.
+     *
+     * Instances are pooled and reused: at video bitrates a fresh buffer per
+     * deferred packet was the app's main source of memory pressure.
+     */
+    private class Pending : Delayed {
+        val payload = ByteArray(MTU)
+        val buffer: ByteBuffer = ByteBuffer.wrap(payload)
+        var flow: UdpFlow? = null
+        var length: Int = 0
+        var dueAtNanos: Long = 0L
+
+        override fun getDelay(unit: TimeUnit): Long =
+            unit.convert(dueAtNanos - System.nanoTime(), TimeUnit.NANOSECONDS)
+
+        override fun compareTo(other: Delayed): Int =
+            dueAtNanos.compareTo((other as Pending).dueAtNanos)
+    }
 
     private var tunnel: ParcelFileDescriptor? = null
-    private var worker: Thread? = null
-    private var scheduler: ScheduledExecutorService? = null
-    private val flows = ConcurrentHashMap<String, Flow>()
+    private var reader: Thread? = null
+    private var selectorThread: Thread? = null
+    private var delayThread: Thread? = null
+    private var selector: Selector? = null
+
+    private val flowsV4 = ConcurrentHashMap<Long, UdpFlow>()
+    private val flowsV6 = ConcurrentHashMap<Long, UdpFlow>()
+
+    /** Channels are registered on the selector thread; see the class comment. */
+    private val pendingRegistrations = ConcurrentLinkedQueue<UdpFlow>()
+
+    private val delayed = DelayQueue<Pending>()
+    private val pendingPool = ArrayBlockingQueue<Pending>(MAX_PENDING_PACKETS)
 
     @Volatile
     private var active = false
@@ -71,8 +162,16 @@ class OrbisVpnService : VpnService() {
             }
 
             else -> {
-                delayMillis = intent?.getLongExtra(EXTRA_DELAY_MILLIS, 0L) ?: 0L
-                start()
+                val requested = intent?.getLongExtra(EXTRA_DELAY_MILLIS, 0L) ?: 0L
+                if (active) {
+                    // Already up: adopt the new intensity rather than ignoring it,
+                    // so the delay tracks usage across a long session.
+                    delayMillis = requested
+                    publishStats()
+                } else {
+                    delayMillis = requested
+                    start()
+                }
                 START_STICKY
             }
         }
@@ -109,6 +208,16 @@ class OrbisVpnService : VpnService() {
         }
         if (allowed == 0) {
             status = "no target apps installed"
+            publishStats()
+            stopSelf()
+            return
+        }
+
+        val openedSelector = try {
+            Selector.open()
+        } catch (t: Throwable) {
+            status = "selector open failed: ${t.message}"
+            publishStats()
             stopSelf()
             return
         }
@@ -123,7 +232,9 @@ class OrbisVpnService : VpnService() {
         val descriptor = tunnel
         if (descriptor == null) {
             if (status == "idle") status = "establish() returned null"
+            runCatching { openedSelector.close() }
             running.value = false
+            publishStats()
             stopSelf()
             return
         }
@@ -132,13 +243,31 @@ class OrbisVpnService : VpnService() {
 
         active = true
         running.value = true
-        packetsRead = 0
-        udpPacketsForwarded = 0
-        tcpPacketsDropped = 0
-        scheduler = Executors.newScheduledThreadPool(SCHEDULER_THREADS)
+        packetsRead.set(0)
+        udpPacketsForwarded.set(0)
+        tcpPacketsDropped.set(0)
+        packetsDropped.set(0)
+
+        selector = openedSelector
+        // Tops the pool back up rather than only filling it once, so a restart
+        // cannot leave the relay permanently short of slots.
+        while (pendingPool.remainingCapacity() > 0) {
+            pendingPool.offer(Pending())
+        }
+
         status = "tunnel up, delay ${delayMillis}ms"
+        publishStats()
         Log.i(TAG, "tunnel up for $allowed app(s), delay=${delayMillis}ms")
-        worker = thread(name = "orbis-vpn") { relay(descriptor) }
+
+        // Both streams wrap the *same* descriptor. Neither is ever closed: the
+        // ParcelFileDescriptor owns that fd, and closing it three times risks
+        // yanking a number that has already been recycled by another thread.
+        val input = FileInputStream(descriptor.fileDescriptor)
+        val output = FileOutputStream(descriptor.fileDescriptor)
+
+        selectorThread = thread(name = "orbis-select") { selectLoop(openedSelector, output) }
+        delayThread = thread(name = "orbis-delay") { delayLoop() }
+        reader = thread(name = "orbis-tun") { relay(input) }
     }
 
     /**
@@ -174,10 +303,16 @@ class OrbisVpnService : VpnService() {
         }
     }
 
-    private fun relay(descriptor: ParcelFileDescriptor) {
-        val input = FileInputStream(descriptor.fileDescriptor)
-        val output = FileOutputStream(descriptor.fileDescriptor)
+    // ---------------------------------------------------------------- outbound
+
+    private fun relay(input: FileInputStream) {
         val buffer = ByteArray(MTU)
+        // One buffer over the read array, re-windowed per packet, so forwarding
+        // costs no allocation and no copy at all.
+        val sendBuffer = ByteBuffer.wrap(buffer)
+        val viewV4 = Ipv4.UdpView()
+        val viewV6 = Ipv6.UdpView()
+
         // Include the delay: it is the only way to see that the throttle actually
         // scaled with usage rather than sitting at the base value.
         status = "relay running, delay ${delayMillis}ms"
@@ -185,15 +320,20 @@ class OrbisVpnService : VpnService() {
         try {
             while (active) {
                 val read = input.read(buffer)
-                if (read <= 0) {
-                    Thread.sleep(10)
+                // A negative read is EOF - the descriptor has been closed under
+                // us, and the old code treated that as "nothing yet" and spun.
+                if (read < 0) break
+                // setBlocking(true) means this should not happen; the sleep is
+                // only so that a driver which disagrees cannot peg a core.
+                if (read == 0) {
+                    Thread.sleep(1)
                     continue
                 }
-                packetsRead++
+                packetsRead.incrementAndGet()
 
                 when ((buffer[0].toInt() and 0xF0) shr 4) {
-                    4 -> handleIpv4(buffer, read, output)
-                    6 -> handleIpv6(buffer, read, output)
+                    4 -> handleIpv4(buffer, read, sendBuffer, viewV4)
+                    6 -> handleIpv6(buffer, read, sendBuffer, viewV6)
                     else -> Unit
                 }
             }
@@ -202,126 +342,382 @@ class OrbisVpnService : VpnService() {
                 status = "relay died: ${t::class.simpleName}: ${t.message}"
                 Log.e(TAG, "relay stopped: ${t.message}")
             }
-        } finally {
-            runCatching { input.close() }
-            runCatching { output.close() }
         }
     }
 
-    private fun handleIpv4(buffer: ByteArray, read: Int, output: FileOutputStream) {
-        val header = Ipv4.parseHeader(buffer, read) ?: return
-        when (header.protocol) {
-            Ipv4.PROTOCOL_UDP -> {
-                val datagram = Ipv4.parseUdp(buffer, read) ?: return
-                forward(
-                    key = "4:${datagram.sourcePort}:${datagram.destinationAddress}:${datagram.destinationPort}",
-                    destination = Ipv4.toBytes(datagram.destinationAddress),
-                    destinationPort = datagram.destinationPort,
-                    payload = datagram.payload,
-                    output = output,
-                ) { reply ->
-                    Ipv4.buildUdp(
-                        sourceAddress = datagram.destinationAddress,
-                        destinationAddress = datagram.sourceAddress,
-                        sourcePort = datagram.destinationPort,
-                        destinationPort = datagram.sourcePort,
-                        payload = reply,
-                    )
-                }
-            }
-
-            Ipv4.PROTOCOL_TCP -> tcpPacketsDropped++
-        }
-    }
-
-    private fun handleIpv6(buffer: ByteArray, read: Int, output: FileOutputStream) {
-        when (Ipv6.nextHeader(buffer, read)) {
-            Ipv6.NEXT_HEADER_UDP -> {
-                val datagram = Ipv6.parseUdp(buffer, read) ?: return
-                forward(
-                    key = "6:${datagram.sourcePort}:${datagram.destinationAddress.contentHashCode()}:${datagram.destinationPort}",
-                    destination = datagram.destinationAddress,
-                    destinationPort = datagram.destinationPort,
-                    payload = datagram.payload,
-                    output = output,
-                ) { reply ->
-                    Ipv6.buildUdp(
-                        sourceAddress = datagram.destinationAddress,
-                        destinationAddress = datagram.sourceAddress,
-                        sourcePort = datagram.destinationPort,
-                        destinationPort = datagram.sourcePort,
-                        payload = reply,
-                    )
-                }
-            }
-
-            Ipv6.NEXT_HEADER_TCP -> tcpPacketsDropped++
-        }
-    }
-
-    private fun forward(
-        key: String,
-        destination: ByteArray,
-        destinationPort: Int,
-        payload: ByteArray,
-        output: FileOutputStream,
-        buildReply: (ByteArray) -> ByteArray,
+    private fun handleIpv4(
+        buffer: ByteArray,
+        read: Int,
+        sendBuffer: ByteBuffer,
+        view: Ipv4.UdpView,
     ) {
-        val flow = flows.getOrPut(key) {
-            val socket = DatagramSocket()
-            // Without protect() our own packets would loop back into the tunnel
-            // and never reach the network.
-            protect(socket)
-            socket.soTimeout = SOCKET_TIMEOUT_MILLIS
-            Flow(socket, buildReply).also {
-                thread(name = "orbis-udp") { readReplies(key, it, output) }
-            }
+        val header = Ipv4.parseHeader(buffer, read) ?: return
+        if (header.protocol == Ipv4.PROTOCOL_TCP) {
+            tcpPacketsDropped.incrementAndGet()
+            return
         }
+        if (header.protocol != Ipv4.PROTOCOL_UDP) return
+        if (!Ipv4.parseUdpInto(buffer, read, view)) return
 
-        val address = InetAddress.getByAddress(destination)
-        val packet = DatagramPacket(payload, payload.size, address, destinationPort)
+        // srcPort | dstPort | dstAddr packs the 5-tuple exactly into 64 bits, so
+        // the map lookup needs no key object and no string building.
+        val key = (view.sourcePort.toLong() shl 48) or
+            (view.destinationPort.toLong() shl 32) or
+            (view.destinationAddress.toLong() and 0xFFFFFFFFL)
 
-        val send = Runnable {
-            runCatching {
-                flow.socket.send(packet)
-                udpPacketsForwarded++
-            }.onFailure { close(key) }
-        }
-
-        // Scheduled, not slept: the read loop must keep draining the tunnel or
-        // every other flow stalls behind this one.
-        val delay = delayMillis
-        if (delay > 0L) {
-            scheduler?.schedule(send, delay, TimeUnit.MILLISECONDS) ?: send.run()
+        val existing = flowsV4[key]
+        val flow = if (existing != null && !existing.closed) {
+            existing
         } else {
-            send.run()
+            existing?.let { closeFlow(it) }
+            openFlowV4(key, view) ?: return
+        }
+
+        forward(flow, buffer, sendBuffer, view.payloadOffset, view.payloadLength)
+    }
+
+    private fun handleIpv6(
+        buffer: ByteArray,
+        read: Int,
+        sendBuffer: ByteBuffer,
+        view: Ipv6.UdpView,
+    ) {
+        when (Ipv6.nextHeader(buffer, read)) {
+            Ipv6.NEXT_HEADER_TCP -> {
+                tcpPacketsDropped.incrementAndGet()
+                return
+            }
+
+            Ipv6.NEXT_HEADER_UDP -> Unit
+            else -> return
+        }
+        if (!Ipv6.parseUdpInto(buffer, read, view)) return
+
+        // A 128-bit address cannot share the 64-bit key, so it is folded to 32
+        // bits and the hit confirmed against the full address below.
+        val addressHash = addressHash(buffer, Ipv6.DESTINATION_OFFSET)
+        val key = (view.sourcePort.toLong() shl 48) or
+            (view.destinationPort.toLong() shl 32) or
+            (addressHash.toLong() and 0xFFFFFFFFL)
+
+        val existing = flowsV6[key]
+        val flow = if (
+            existing != null &&
+            !existing.closed &&
+            existing.matchesV6(buffer, Ipv6.DESTINATION_OFFSET)
+        ) {
+            existing
+        } else {
+            existing?.let { closeFlow(it) }
+            openFlowV6(key, buffer, view) ?: return
+        }
+
+        forward(flow, buffer, sendBuffer, view.payloadOffset, view.payloadLength)
+    }
+
+    /**
+     * Sends now, or queues the packet until its delay expires.
+     *
+     * Never sleeps: the read loop has to keep draining the TUN or every other
+     * flow stalls behind this one.
+     */
+    private fun forward(
+        flow: UdpFlow,
+        buffer: ByteArray,
+        sendBuffer: ByteBuffer,
+        payloadOffset: Int,
+        payloadLength: Int,
+    ) {
+        flow.lastUsedMillis = SystemClock.elapsedRealtime()
+
+        val delay = delayMillis
+        if (delay <= 0L) {
+            // Window the shared buffer onto this payload - no copy, no allocation.
+            (sendBuffer as Buffer).clear()
+            sendBuffer.position(payloadOffset)
+            sendBuffer.limit(payloadOffset + payloadLength)
+            send(flow, sendBuffer)
+            return
+        }
+
+        // The pool is the back-pressure: when every slot is in flight the packet
+        // is dropped rather than queued. Dropping is the correct failure mode for
+        // a UDP throttle, and it is what bounds the relay's memory.
+        val pending = pendingPool.poll()
+        if (pending == null) {
+            packetsDropped.incrementAndGet()
+            return
+        }
+
+        buffer.copyInto(pending.payload, 0, payloadOffset, payloadOffset + payloadLength)
+        pending.flow = flow
+        pending.length = payloadLength
+        pending.dueAtNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delay)
+        delayed.put(pending)
+    }
+
+    private fun delayLoop() {
+        while (active) {
+            val pending = try {
+                delayed.take()
+            } catch (_: InterruptedException) {
+                break
+            }
+
+            val flow = pending.flow
+            if (flow != null && !flow.closed) {
+                (pending.buffer as Buffer).clear()
+                pending.buffer.limit(pending.length)
+                send(flow, pending.buffer)
+            }
+
+            pending.flow = null
+            pendingPool.offer(pending)
         }
     }
 
-    private fun readReplies(key: String, flow: Flow, output: FileOutputStream) {
-        val buffer = ByteArray(MTU)
+    private fun send(flow: UdpFlow, buffer: ByteBuffer) {
         try {
-            while (active && !flow.socket.isClosed) {
-                val packet = DatagramPacket(buffer, buffer.size)
-                try {
-                    flow.socket.receive(packet)
-                } catch (_: java.net.SocketTimeoutException) {
-                    continue
+            flow.channel.write(buffer)
+            udpPacketsForwarded.incrementAndGet()
+        } catch (_: Throwable) {
+            closeFlow(flow)
+        }
+    }
+
+    // ----------------------------------------------------------------- inbound
+
+    /**
+     * The one thread that touches the [Selector] and the one that writes to the
+     * tunnel. Also does the housekeeping - registration, idle eviction, stats -
+     * because it already wakes at least once a second.
+     */
+    private fun selectLoop(selector: Selector, output: FileOutputStream) {
+        val out = ByteArray(MTU)
+        val replyBuffer = ByteBuffer.wrap(out)
+
+        try {
+            while (active) {
+                registerPending(selector)
+                selector.select(SELECT_TIMEOUT_MILLIS)
+                if (!active) break
+
+                val keys = selector.selectedKeys()
+                val iterator = keys.iterator()
+                while (iterator.hasNext()) {
+                    val key = iterator.next()
+                    iterator.remove()
+                    if (!key.isValid || !key.isReadable) continue
+                    drainReplies(key, out, replyBuffer, output)
                 }
 
-                val reply = flow.buildReply(packet.data.copyOfRange(0, packet.length))
-                synchronized(output) { output.write(reply) }
+                evictIdleFlows()
+                publishStats()
             }
         } catch (t: Throwable) {
-            if (active) Log.d(TAG, "flow $key ended: ${t.message}")
-        } finally {
-            close(key)
+            if (active) {
+                status = "selector died: ${t::class.simpleName}: ${t.message}"
+                Log.e(TAG, "selector stopped: ${t.message}")
+            }
         }
     }
 
-    private fun close(key: String) {
-        flows.remove(key)?.let { runCatching { it.socket.close() } }
+    private fun registerPending(selector: Selector) {
+        while (true) {
+            val flow = pendingRegistrations.poll() ?: return
+            if (flow.closed) continue
+            runCatching {
+                flow.channel.register(selector, SelectionKey.OP_READ, flow)
+            }.onFailure { closeFlow(flow) }
+        }
     }
+
+    /**
+     * Reads every reply the kernel has buffered for one flow and writes each back
+     * into the tunnel.
+     *
+     * The payload is read straight into the position it will occupy in the
+     * finished packet, so the headers are simply written in front of it and
+     * nothing is ever copied.
+     */
+    private fun drainReplies(
+        key: SelectionKey,
+        out: ByteArray,
+        replyBuffer: ByteBuffer,
+        output: FileOutputStream,
+    ) {
+        val flow = key.attachment() as? UdpFlow ?: return
+        if (flow.closed) return
+
+        repeat(MAX_REPLIES_PER_SELECT) {
+            (replyBuffer as Buffer).clear()
+            replyBuffer.position(flow.replyHeaderBytes)
+
+            val read = try {
+                flow.channel.read(replyBuffer)
+            } catch (_: Throwable) {
+                closeFlow(flow)
+                return
+            }
+            if (read <= 0) return
+
+            flow.lastUsedMillis = SystemClock.elapsedRealtime()
+
+            val total = if (flow.ipv6) {
+                Ipv6.buildUdpInto(
+                    out = out,
+                    sourceAddress = flow.remoteAddressV6 ?: return,
+                    destinationAddress = flow.localAddressV6 ?: return,
+                    sourcePort = flow.remotePort,
+                    destinationPort = flow.localPort,
+                    payload = out,
+                    payloadOffset = flow.replyHeaderBytes,
+                    payloadLength = read,
+                )
+            } else {
+                Ipv4.buildUdpInto(
+                    out = out,
+                    sourceAddress = flow.remoteAddressV4,
+                    destinationAddress = flow.localAddressV4,
+                    sourcePort = flow.remotePort,
+                    destinationPort = flow.localPort,
+                    payload = out,
+                    payloadOffset = flow.replyHeaderBytes,
+                    payloadLength = read,
+                )
+            }
+
+            output.write(out, 0, total)
+        }
+    }
+
+    // ------------------------------------------------------------------- flows
+
+    private fun openFlowV4(key: Long, view: Ipv4.UdpView): UdpFlow? {
+        if (!hasFlowCapacity()) return null
+
+        val channel = openChannel(
+            Ipv4.toBytes(view.destinationAddress),
+            view.destinationPort,
+        ) ?: return null
+
+        val flow = UdpFlow(
+            key = key,
+            channel = channel,
+            ipv6 = false,
+            localAddressV4 = view.sourceAddress,
+            remoteAddressV4 = view.destinationAddress,
+            localAddressV6 = null,
+            remoteAddressV6 = null,
+            localPort = view.sourcePort,
+            remotePort = view.destinationPort,
+        )
+        flowsV4[key] = flow
+        enqueueRegistration(flow)
+        return flow
+    }
+
+    private fun openFlowV6(key: Long, packet: ByteArray, view: Ipv6.UdpView): UdpFlow? {
+        if (!hasFlowCapacity()) return null
+
+        // Copied once per flow rather than twice per packet.
+        val remote = packet.copyOfRange(
+            Ipv6.DESTINATION_OFFSET,
+            Ipv6.DESTINATION_OFFSET + Ipv6.ADDRESS_BYTES,
+        )
+        val local = packet.copyOfRange(
+            Ipv6.SOURCE_OFFSET,
+            Ipv6.SOURCE_OFFSET + Ipv6.ADDRESS_BYTES,
+        )
+
+        val channel = openChannel(remote, view.destinationPort) ?: return null
+
+        val flow = UdpFlow(
+            key = key,
+            channel = channel,
+            ipv6 = true,
+            localAddressV4 = 0,
+            remoteAddressV4 = 0,
+            localAddressV6 = local,
+            remoteAddressV6 = remote,
+            localPort = view.sourcePort,
+            remotePort = view.destinationPort,
+        )
+        flowsV6[key] = flow
+        enqueueRegistration(flow)
+        return flow
+    }
+
+    private fun openChannel(address: ByteArray, port: Int): DatagramChannel? = try {
+        val channel = DatagramChannel.open()
+        channel.configureBlocking(false)
+        // Without protect() our own packets would loop back into the tunnel and
+        // never reach the network.
+        if (!protect(channel.socket())) {
+            channel.close()
+            null
+        } else {
+            // Connecting pins the peer, so replies arrive on a plain read() with
+            // no SocketAddress to allocate or compare per packet.
+            channel.connect(InetSocketAddress(InetAddress.getByAddress(address), port))
+            channel
+        }
+    } catch (t: Throwable) {
+        Log.d(TAG, "could not open flow: ${t.message}")
+        null
+    }
+
+    private fun enqueueRegistration(flow: UdpFlow) {
+        flow.lastUsedMillis = SystemClock.elapsedRealtime()
+        pendingRegistrations.add(flow)
+        selector?.wakeup()
+    }
+
+    /**
+     * A hard ceiling on concurrent conversations.
+     *
+     * Browsers are routed too, so a busy page can open flows faster than they
+     * expire. Refusing beyond the cap costs one dropped packet; running without
+     * one costs file descriptors until the process dies.
+     */
+    private fun hasFlowCapacity(): Boolean {
+        if (flowsV4.size + flowsV6.size < MAX_FLOWS) return true
+        packetsDropped.incrementAndGet()
+        return false
+    }
+
+    private fun evictIdleFlows() {
+        val now = SystemClock.elapsedRealtime()
+        evictIdleFrom(flowsV4, now)
+        evictIdleFrom(flowsV6, now)
+    }
+
+    private fun evictIdleFrom(flows: ConcurrentHashMap<Long, UdpFlow>, now: Long) {
+        if (flows.isEmpty()) return
+        val iterator = flows.values.iterator()
+        while (iterator.hasNext()) {
+            val flow = iterator.next()
+            if (flow.closed || now - flow.lastUsedMillis > FLOW_IDLE_MILLIS) {
+                iterator.remove()
+                closeChannel(flow)
+            }
+        }
+    }
+
+    private fun closeFlow(flow: UdpFlow) {
+        val map = if (flow.ipv6) flowsV6 else flowsV4
+        map.remove(flow.key, flow)
+        closeChannel(flow)
+    }
+
+    private fun closeChannel(flow: UdpFlow) {
+        if (flow.closed) return
+        flow.closed = true
+        runCatching { flow.channel.keyFor(selector)?.cancel() }
+        runCatching { flow.channel.close() }
+    }
+
+    // ---------------------------------------------------------------- lifecycle
 
     override fun onRevoke() {
         Log.i(TAG, "consent revoked")
@@ -335,7 +731,7 @@ class OrbisVpnService : VpnService() {
     }
 
     /**
-     * Releases the TUN interface and every relay socket.
+     * Releases the TUN interface and every relay channel.
      *
      * A leaked interface keeps routing the user's traffic after ORBIS is gone, so
      * this must run on every exit path - stop, revoke, destroy and failure.
@@ -345,22 +741,67 @@ class OrbisVpnService : VpnService() {
         active = false
         running.value = false
 
-        scheduler?.shutdownNow()
-        scheduler = null
+        // Wakes the selector out of select() and the delay thread out of take().
+        runCatching { selector?.wakeup() }
+        delayThread?.interrupt()
 
-        worker?.interrupt()
-        worker = null
-
-        flows.keys.toList().forEach(::close)
-        flows.clear()
-
+        // The reader is parked in a read() on the TUN fd, which interrupt() does
+        // not unblock - closing the descriptor is what ends it.
         runCatching { tunnel?.close() }
         tunnel = null
 
+        // Join before dropping the references, so a fast stop/start cannot leave
+        // the previous relay writing into the next tunnel.
+        runCatching { reader?.join(THREAD_JOIN_MILLIS) }
+        runCatching { selectorThread?.join(THREAD_JOIN_MILLIS) }
+        runCatching { delayThread?.join(THREAD_JOIN_MILLIS) }
+        reader = null
+        selectorThread = null
+        delayThread = null
+
+        flowsV4.values.forEach(::closeChannel)
+        flowsV6.values.forEach(::closeChannel)
+        flowsV4.clear()
+        flowsV6.clear()
+        pendingRegistrations.clear()
+
+        // Recycle the deferred packets rather than dropping the pool on the floor.
+        while (true) {
+            val pending = delayed.poll() ?: break
+            pending.flow = null
+            pendingPool.offer(pending)
+        }
+
+        runCatching { selector?.close() }
+        selector = null
+
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
 
-        status = "stopped (read=$packetsRead, udp=$udpPacketsForwarded, tcp dropped=$tcpPacketsDropped)"
+        status = "stopped (read=${packetsRead.get()}, udp=${udpPacketsForwarded.get()}, " +
+            "tcp dropped=${tcpPacketsDropped.get()})"
+        publishStats()
         Log.i(TAG, status)
+    }
+
+    private fun publishStats() {
+        stats.value = TunnelStats(
+            running = active,
+            packetsRead = packetsRead.get(),
+            udpForwarded = udpPacketsForwarded.get(),
+            tcpDropped = tcpPacketsDropped.get(),
+            packetsDropped = packetsDropped.get(),
+            activeFlows = flowsV4.size + flowsV6.size,
+            delayMillis = delayMillis,
+            status = status,
+        )
+    }
+
+    private fun addressHash(packet: ByteArray, offset: Int): Int {
+        var hash = 1
+        for (index in 0 until Ipv6.ADDRESS_BYTES) {
+            hash = 31 * hash + packet[offset + index]
+        }
+        return hash
     }
 
     companion object {
@@ -377,8 +818,29 @@ class OrbisVpnService : VpnService() {
         private const val TUNNEL_ADDRESS_V4 = "10.111.222.2"
         private const val TUNNEL_ADDRESS_V6 = "fd00:1:2:3::2"
         private const val MTU = 1500
-        private const val SOCKET_TIMEOUT_MILLIS = 10_000
-        private const val SCHEDULER_THREADS = 4
+
+        private const val IPV4_HEADER_BYTES = 20
+        private const val UDP_HEADER_BYTES = 8
+
+        /** How long the selector waits before doing its housekeeping pass. */
+        private const val SELECT_TIMEOUT_MILLIS = 1_000L
+
+        /** A conversation this quiet is over; its channel is closed. */
+        private const val FLOW_IDLE_MILLIS = 30_000L
+
+        /** Ceiling on concurrent conversations. See [hasFlowCapacity]. */
+        private const val MAX_FLOWS = 512
+
+        /**
+         * Deferred packets held at once, i.e. the relay's memory ceiling
+         * (~[MAX_PENDING_PACKETS] x [MTU]). Beyond it packets are dropped.
+         */
+        private const val MAX_PENDING_PACKETS = 128
+
+        /** Replies drained per flow per select, so one busy flow cannot starve others. */
+        private const val MAX_REPLIES_PER_SELECT = 16
+
+        private const val THREAD_JOIN_MILLIS = 500L
 
         private val running = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = running.asStateFlow()
@@ -390,23 +852,29 @@ class OrbisVpnService : VpnService() {
          * Diagnostics are surfaced in the UI rather than logged, because ColorOS
          * silently drops this app's logcat output and a blackholing tunnel is
          * otherwise indistinguishable from a working one.
+         *
+         * Atomic, not `@Volatile var`: they are incremented from the reader, the
+         * selector and the delay thread at once, and `volatile` gives visibility
+         * without atomicity - the counts silently undercounted.
          */
-        @Volatile
-        var udpPacketsForwarded = 0L
-            private set
-
-        @Volatile
-        var tcpPacketsDropped = 0L
-            private set
-
-        /** Raw reads off the TUN. Zero here means nothing reaches the relay. */
-        @Volatile
-        var packetsRead = 0L
-            private set
+        private val udpPacketsForwarded = AtomicLong(0)
+        private val tcpPacketsDropped = AtomicLong(0)
+        private val packetsRead = AtomicLong(0)
+        private val packetsDropped = AtomicLong(0)
 
         @Volatile
         var status: String = "idle"
             private set
+
+        private val stats = MutableStateFlow(TunnelStats())
+
+        /**
+         * Live counters, published by the service rather than polled.
+         *
+         * The UI used to sample the counters on a 1 Hz timer that ran whether or
+         * not the tunnel was up, recomposing the whole tree every second.
+         */
+        val tunnelStats: StateFlow<TunnelStats> = stats.asStateFlow()
 
         /**
          * Packages the tunnel may route.
@@ -443,3 +911,16 @@ class OrbisVpnService : VpnService() {
             InetAddress.getByAddress(Ipv4.toBytes(address))
     }
 }
+
+/** A snapshot of what the relay is doing, for the UI. */
+data class TunnelStats(
+    val running: Boolean = false,
+    val packetsRead: Long = 0L,
+    val udpForwarded: Long = 0L,
+    val tcpDropped: Long = 0L,
+    /** Packets shed because the delay queue or the flow table was full. */
+    val packetsDropped: Long = 0L,
+    val activeFlows: Int = 0,
+    val delayMillis: Long = 0L,
+    val status: String = "idle",
+)

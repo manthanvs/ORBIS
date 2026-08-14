@@ -35,9 +35,11 @@ class GoodDeedWorker(
             DatabaseProvider.get(applicationContext).goodDeedDao()
         )
 
-        if (repository.doneToday()) return Result.success()
+        // One read of the log for both answers, rather than one each.
+        val summary = repository.summary()
+        if (summary.doneToday) return Result.success()
 
-        notify(applicationContext, repository.streak())
+        notify(applicationContext, summary.streak)
         return Result.success()
     }
 

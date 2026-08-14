@@ -44,17 +44,30 @@ class GoodDeedDaoTest {
 
     @Test
     fun streakCountsTodaysDeed() = runBlocking {
-        assertEquals(0, repository.streak())
+        assertEquals(0, repository.summary().streak)
 
         repository.record(null, "one")
 
-        assertEquals(1, repository.streak(LocalDate.now()))
-        assertTrue(repository.doneToday())
+        val summary = repository.summary(LocalDate.now())
+        assertEquals(1, summary.streak)
+        assertTrue(summary.doneToday)
     }
 
     @Test
     fun noDeedMeansNotDoneToday() = runBlocking {
-        assertFalse(repository.doneToday())
+        assertFalse(repository.summary().doneToday)
+    }
+
+    @Test
+    fun summarizingTheObservedRowsAgreesWithReadingThemBack() = runBlocking {
+        // The ViewModel derives the streak from the rows observeAll already
+        // handed it rather than re-querying. The two paths must not drift.
+        repository.record(null, "one")
+
+        val fromDatabase = repository.summary()
+        val fromEntries = repository.summarize(repository.observeAll().first())
+
+        assertEquals(fromDatabase, fromEntries)
     }
 
     @Test

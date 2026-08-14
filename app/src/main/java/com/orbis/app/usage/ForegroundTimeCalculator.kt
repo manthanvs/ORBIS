@@ -29,9 +29,15 @@ object ForegroundTimeCalculator {
         val totals = mutableMapOf<String, Long>()
         val openedAt = mutableMapOf<String, Long>()
 
+        // `sortedBy` would box a Long per element, and `filter` would copy the
+        // list a second time. The framework already returns events in order, so
+        // in production this sort finds nothing to do - it is here because the
+        // tests feed in deliberately shuffled streams.
         events
-            .filter { it.timestampMillis in windowStartMillis..windowEndMillis }
-            .sortedBy { it.timestampMillis }
+            .filterTo(ArrayList(events.size)) {
+                it.timestampMillis in windowStartMillis..windowEndMillis
+            }
+            .apply { sortWith { a, b -> a.timestampMillis.compareTo(b.timestampMillis) } }
             .forEach { event ->
                 when (event.type) {
                     UsageEventType.FOREGROUND ->

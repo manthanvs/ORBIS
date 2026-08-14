@@ -11,16 +11,16 @@ import androidx.camera.core.Preview as CameraPreview
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -100,49 +100,66 @@ fun GoodDeedScreen(
         return
     }
 
-    Column(
+    // A LazyColumn rather than a scrolling Column: the log has no upper bound, so
+    // composing every past deed to show the most recent handful gets slower for
+    // as long as the user keeps using the feature.
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(horizontal = 20.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            text = "Good deeds",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-        )
-
-        StreakCard(
-            streak = state.streak,
-            doneToday = state.doneToday,
-            onStart = {
-                if (hasCamera) onStartCapture() else cameraPermission.launch(Manifest.permission.CAMERA)
-            },
-        )
-
-        state.message?.let {
-            Text(text = it, style = MaterialTheme.typography.bodyMedium)
+        item(key = "header") {
+            Text(
+                text = "Good deeds",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
         }
 
-        // The real prompt is daily, so without this the loop cannot be checked
-        // without waiting a day.
-        OutlinedButton(onClick = onSendTestPrompt) {
-            Text("Send a test prompt now")
+        item(key = "streak") {
+            StreakCard(
+                streak = state.streak,
+                doneToday = state.doneToday,
+                onStart = {
+                    if (hasCamera) {
+                        onStartCapture()
+                    } else {
+                        cameraPermission.launch(Manifest.permission.CAMERA)
+                    }
+                },
+            )
+        }
+
+        state.message?.let { message ->
+            item(key = "message") {
+                Text(text = message, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+
+        item(key = "test-prompt") {
+            // The real prompt is daily, so without this the loop cannot be checked
+            // without waiting a day.
+            OutlinedButton(onClick = onSendTestPrompt) {
+                Text("Send a test prompt now")
+            }
         }
 
         if (state.entries.isNotEmpty()) {
-            Text(
-                text = "Your log",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            Card {
-                Column(Modifier.fillMaxWidth()) {
-                    state.entries.forEachIndexed { index, entry ->
-                        if (index > 0) HorizontalDivider()
-                        DeedRow(entry)
-                    }
+            item(key = "log-title") {
+                Text(
+                    text = "Your log",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            // Keyed on the row id so inserting a deed does not re-compose the
+            // rows below it.
+            items(state.entries, key = { it.id }) { entry ->
+                Card {
+                    DeedRow(entry)
                 }
             }
         }

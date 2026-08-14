@@ -24,13 +24,27 @@ data class SurfaceSignals(
  * packages in its config, so ORBIS never receives events from anything else.
  */
 object BrowserPackages {
-    val ALL: Set<String> = setOf(
-        "com.android.chrome",
-        "com.microsoft.emmx",
-        "org.mozilla.firefox",
-        "com.brave.browser",
-        "com.opera.browser",
-        "com.sec.android.app.sbrowser",
-        "com.duckduckgo.mobile.android",
+
+    /**
+     * The address-bar view id per browser, so the URL can be read with a single
+     * targeted lookup.
+     *
+     * Reading text from the whole tree instead means stringifying every visible
+     * text node on the page - hundreds of them, several times a second. These ids
+     * are best-effort: a browser that has renamed its toolbar, or has it hidden
+     * during fullscreen video, simply falls back to the bounded tree walk.
+     */
+    val URL_BAR_IDS: Map<String, String> = mapOf(
+        "com.android.chrome" to "com.android.chrome:id/url_bar",
+        "com.microsoft.emmx" to "com.microsoft.emmx:id/url_bar",
+        "org.mozilla.firefox" to "org.mozilla.firefox:id/mozac_browser_toolbar_url_view",
+        "com.brave.browser" to "com.brave.browser:id/url_bar",
+        "com.opera.browser" to "com.opera.browser:id/url_field",
+        "com.sec.android.app.sbrowser" to
+            "com.sec.android.app.sbrowser:id/location_bar_edit_text",
+        "com.duckduckgo.mobile.android" to
+            "com.duckduckgo.mobile.android:id/omnibarTextInput",
     )
+
+    val ALL: Set<String> = URL_BAR_IDS.keys
 }

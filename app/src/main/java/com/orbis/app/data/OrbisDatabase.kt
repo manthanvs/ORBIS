@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [UsageLog::class, GoodDeedEntry::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class OrbisDatabase : RoomDatabase() {
@@ -43,6 +43,33 @@ abstract class OrbisDatabase : RoomDatabase() {
                         "`photoPath` TEXT, " +
                         "`note` TEXT NOT NULL, " +
                         "`completed` INTEGER NOT NULL)"
+                )
+            }
+        }
+
+        /**
+         * Indices only - no data is touched.
+         *
+         * `usage_log`'s unique index is reordered to lead with `date`: SQLite can
+         * only use an index whose leading column is constrained, so the old
+         * `(app, date)` ordering left the dashboard's date-range query doing a
+         * full scan of a table that grows forever. `(date, app)` enforces exactly
+         * the same uniqueness and serves the range query too.
+         *
+         * The index names must be precisely what Room derives from the entities,
+         * or schema validation throws on the next open.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP INDEX IF EXISTS `index_usage_log_app_date`")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_usage_log_date_app` " +
+                        "ON `usage_log` (`date`, `app`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS " +
+                        "`index_good_deed_completed_timestampMillis` " +
+                        "ON `good_deed` (`completed`, `timestampMillis`)"
                 )
             }
         }

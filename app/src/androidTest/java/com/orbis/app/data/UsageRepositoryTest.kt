@@ -77,9 +77,12 @@ class UsageRepositoryTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         assumeTrue("usage access not granted", UsageAccess.isGranted(context))
 
-        repository.refreshToday()
-        repository.refreshToday()
-        repository.refreshToday()
+        // force, or the repository's cache would short-circuit the second and
+        // third calls and the write path would only actually run once - which is
+        // not what this test claims to prove.
+        repository.refreshToday(force = true)
+        repository.refreshToday(force = true)
+        repository.refreshToday(force = true)
 
         val rows = database.usageLogDao()
             .observeForDate(LocalDate.now().toString())

@@ -18,7 +18,19 @@ class UsageStatsSource(
     private val usageStatsManager: UsageStatsManager,
 ) {
 
-    fun eventsBetween(startMillis: Long, endMillis: Long): List<UsageEventRecord> {
+    /**
+     * @param packages when non-null, only these packages are materialised.
+     *   `queryEvents` returns transitions for **every** app on the device, which
+     *   on a busy phone is tens of thousands of events for a single day - and
+     *   ORBIS reports on four of them. Filtering here rather than downstream is
+     *   the difference between allocating four figures of records per refresh and
+     *   allocating a handful.
+     */
+    fun eventsBetween(
+        startMillis: Long,
+        endMillis: Long,
+        packages: Set<String>? = null,
+    ): List<UsageEventRecord> {
         val records = mutableListOf<UsageEventRecord>()
         val events = usageStatsManager.queryEvents(startMillis, endMillis)
         val event = UsageEvents.Event()
@@ -29,14 +41,16 @@ class UsageStatsSource(
                 UsageEvents.Event.ACTIVITY_RESUMED -> UsageEventType.FOREGROUND
                 UsageEvents.Event.ACTIVITY_PAUSED -> UsageEventType.BACKGROUND
                 else -> null
-            }
-            if (type != null) {
-                records += UsageEventRecord(
-                    packageName = event.packageName,
-                    type = type,
-                    timestampMillis = event.timeStamp,
-                )
-            }
+            } ?: continue
+
+            val packageName = event.packageName ?: continue
+            if (packages != null && packageName !in packages) continue
+
+            records += UsageEventRecord(
+                packageName = packageName,
+                type = type,
+                timestampMillis = event.timeStamp,
+            )
         }
         return records
     }

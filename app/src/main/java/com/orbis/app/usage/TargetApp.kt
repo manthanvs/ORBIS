@@ -27,6 +27,9 @@ enum class TargetApp(
 
         fun fromPackage(packageName: String): TargetApp? = byPackage[packageName]
 
+        /** Every package ORBIS measures; used to filter the raw event stream. */
+        val packageNames: Set<String> = byPackage.keys
+
         /** The only apps the throttle engine may act on. */
         val throttleable: List<TargetApp> = entries.filter { it.throttled }
 

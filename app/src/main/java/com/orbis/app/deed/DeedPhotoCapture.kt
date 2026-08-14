@@ -6,8 +6,9 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -22,11 +23,19 @@ object DeedPhotoCapture {
 
     private const val DIRECTORY = "good_deeds"
 
+    /**
+     * Hoisted, and a `DateTimeFormatter` rather than a `SimpleDateFormat`: the
+     * latter was rebuilt on every call and is not thread-safe, so it could not
+     * have been hoisted as it stood.
+     */
+    private val FILE_STAMP: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.US)
+
     fun photoDirectory(context: Context): File =
         File(context.filesDir, DIRECTORY).apply { mkdirs() }
 
     fun newPhotoFile(context: Context): File {
-        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+        val stamp = FILE_STAMP.format(Instant.now().atZone(ZoneId.systemDefault()))
         return File(photoDirectory(context), "deed-$stamp.jpg")
     }
 

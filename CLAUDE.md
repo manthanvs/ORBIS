@@ -35,19 +35,54 @@ What exists:
 - `com.orbis.app.usage` — `TargetApp`, `ForegroundTimeCalculator`, `UsageProfile`, `DurationFormatter`, `UsageProfileHolder`; plus `UsageStatsSource` and `UsageAccess`.
 - `com.orbis.app.surface` — `SurfaceDetector` (pure), `OrbisAccessibilityService`, `SurfaceMonitor`, `AccessibilityAccess`, `BrowserPackages`.
 - `com.orbis.app.throttle` — `ThrottleEngine` (pure, usage-scaled delay), `ThrottleSettings` (DataStore-backed).
-- `com.orbis.app.vpn` — `Ipv4`/`Ipv6` (pure packet parse/build), `OrbisVpnService` (UDP relay).
+- `com.orbis.app.vpn` — `Ipv4`/`Ipv6` (pure packet parse/build), `OrbisVpnService` (UDP relay), `TunnelStats`.
 - `com.orbis.app.data` — `UsageLog`/`UsageLogDao`/`OrbisDatabase`, `DatabaseProvider`, `UsageRepository`.
-- `com.orbis.app.ui` — `UsageViewModel`, `UsageScreen`.
+- `com.orbis.app.dashboard` / `com.orbis.app.deed` — `ReclaimedTime` and `GoodDeedStreak` (both pure and unit-tested), `GoodDeedRepository`, `GoodDeedScheduler`, `DeedPhotoCapture`.
+- `com.orbis.app.ui` — `HomeScreen`/`HomeViewModel`, `ControlsScreen`, `GoodDeedScreen`/`GoodDeedViewModel`.
 
 Measured behaviour: Reels detected → tunnel up with a usage-scaled delay (400 ms at ~1 h of Instagram), `read 1138 / UDP fwd 1045 / TCP dropped 77`. Browsers are routed too, so `youtube.com/shorts` in Chrome or Edge is throttled.
 
-- `com.orbis.app.dashboard` / `com.orbis.app.deed` — `ReclaimedTime` and `GoodDeedStreak` (both pure and unit-tested), `GoodDeedRepository`, `GoodDeedScheduler`, `DeedPhotoCapture`.
+Re-verified on CPH2585 after the selector rewrite, one Reels session:
+`read 486 / UDP fwd 416 / TCP dropped 60 / shed 0 / open flows 0`, delay 126 ms.
+`shed 0` means the bounded delay queue never saturated at Reels bitrate, and
+`open flows 0` after teardown means every channel was closed. Tunnel comes up
+~6 s after Reels appears and drops **3 s** after leaving for an app ORBIS does
+not observe — the watchdog, which is the case the old hysteresis never handled.
 
-All five phases are built. The database is at **version 2**; `MIGRATION_1_2` adds `good_deed`. There is deliberately **no `fallbackToDestructiveMigration`** — the usage history in this database is what the dashboard's baseline is computed from, so wiping it would silently destroy real data and reset "reclaimed time" to "still learning".
+The WhatsApp invariant is enforced by the OS and observable: while the tunnel is
+up, `dumpsys connectivity` shows the ORBIS network's
+`Uids: <{10156, 10171, 10401, 10447, 10460, …}>` — Chrome, YouTube, Snapchat,
+Edge, Instagram. WhatsApp's uid is absent. That is the check to re-run if the
+routing logic is ever touched.
+
+All five phases are built. The database is at **version 3**: `MIGRATION_1_2` adds `good_deed`, `MIGRATION_2_3` reorders `usage_log`'s unique index to lead with `date` and indexes `good_deed`. There is deliberately **no `fallbackToDestructiveMigration`** — the usage history in this database is what the dashboard's baseline is computed from, so wiping it would silently destroy real data and reset "reclaimed time" to "still learning".
 
 `ThrottleRule` is still not an entity: throttle intensity is derived from usage at runtime by `ThrottleEngine`, so there is nothing to persist until rules become user-editable.
 
 Update this file as real structure lands.
+
+### UI structure
+
+Three destinations behind a bottom `NavigationBar`, and only the selected one is
+composed:
+
+- **Home** (`HomeScreen`) — live protection status, reclaimed-time hero, 7-day
+  chart, today's per-app split, good-deed streak teaser.
+- **Deeds** (`GoodDeedScreen`) — a `LazyColumn`, because the log is unbounded.
+- **Controls** (`ControlsScreen`) — detection state, the tunnel switch, and the
+  packet diagnostics.
+
+`HomeViewModel` owns both halves of the home screen: `state` for the slow-moving
+numbers and `protection` for the live ones. They are separate because the tunnel
+publishes counters several times a second, and `protection` maps those away
+before `distinctUntilChanged` so the home screen never wakes for traffic it does
+not display. **The packet counters are collected in `ControlsRoute` and nowhere
+else** — collecting them at the top of the composition, as the old tab layout
+did, recomposed every screen once a second.
+
+`OrbisTheme` uses a fixed ORBIS palette with `dynamicColor = false`. Material You
+would repaint the app in wallpaper colours, which can land on reds that make an
+encouraging dashboard read as a warning.
 
 ### Build setup
 
@@ -96,6 +131,68 @@ These are design intent, not implementation detail. Do not relax them without as
 - **Dashboard copy is encouraging, never shame-based.** Restriction alone gets uninstalled; the positive redirect is the whole thesis.
 - **The TUN interface must be released on stop.** A VPN service that leaks its interface throttles the user's phone after the app is closed.
 - **Keep the throttle delay modest in development** (a few hundred ms). Cranking it up to make a demo obvious makes the app feel broken instead of intentional.
+
+## Performance invariants
+
+Both hot paths were rewritten because the original shapes degraded the whole
+device, not just ORBIS. Don't reintroduce either.
+
+### The relay is three threads, not one per flow
+
+`OrbisVpnService` runs exactly **orbis-tun** (reads the TUN), **orbis-select**
+(one `Selector` over every flow's `DatagramChannel`; the only thread that writes
+back into the tunnel, so no lock is needed) and **orbis-delay** (drains the
+`DelayQueue`). It previously ran a thread and a blocking `DatagramSocket` per
+5-tuple with no eviction — and browsers are routed, so every DNS lookup and CDN
+connection opened another. Flows are now evicted after 30 s idle and capped at
+`MAX_FLOWS`.
+
+Other things in there that look removable and are not:
+
+- **Packet counters are `AtomicLong`.** They are incremented from all three
+  threads; `@Volatile var Long` gave visibility without atomicity and silently
+  undercounted.
+- **Nothing closes the tunnel's `FileInputStream`/`FileOutputStream`.** Both wrap
+  the *same* fd, which `ParcelFileDescriptor.close()` owns. Closing it three
+  times can yank an fd number another thread has already been given.
+- **The delay queue is a fixed pool, and a full pool drops the packet.** That is
+  the back-pressure and the memory ceiling. An unbounded `ScheduledThreadPool`
+  queue holds `bitrate × delay` packets alive.
+- **`buildUdpInto`/`parseUdpInto` write into reused buffers**, so every header
+  byte including the zeroed ones and the checksum field must be written
+  explicitly — the buffer still holds the previous packet on entry. `PacketBufferTest`
+  covers exactly this.
+
+### Detection asks for ids; it does not walk the tree
+
+`collectSignals` calls `findAccessibilityNodeInfosByViewId` for the handful of
+ids `SurfaceDetector.candidateIdsFor` names, and returns at the first visible
+hit. Every node accessor is a binder call into the observed app, and the old
+breadth-first walk of up to 600 nodes made roughly **ten thousand of them per
+second** during playback, on the main thread. Browsers read the address bar by
+id (`BrowserPackages.URL_BAR_IDS`), falling back to a bounded walk only when the
+toolbar is hidden.
+
+`isVisibleToUser` is still the load-bearing check — see the survey below.
+
+Nodes are recycled below API 33 (`recycleCompat`); the old walk leaked all of
+them.
+
+### The tunnel comes down on a watchdog, not on the next event
+
+`STOP_GRACE_MILLIS` hysteresis alone never expires once the user leaves the
+observed apps, because no further events arrive — and that is exactly when the
+tunnel must drop. `scheduleWatchdog()` keeps a teardown check pending for as long
+as the tunnel is up, and `onDestroy` stops the tunnel outright: with detection
+gone, nothing else would ever take it down.
+
+### One repository, one query
+
+`UsageRepository.shared(context)` is process-wide and caches today's profile for
+`CACHE_TTL_MILLIS`. Each ViewModel used to construct its own, so a single resume
+ran two full-day `queryEvents` scans concurrently and wrote the same four rows
+twice. `UsageStatsSource.eventsBetween` also takes a package filter — the raw
+stream carries every app on the device.
 
 ## Surface-detection survey (measured on CPH2585, Android 16)
 
@@ -169,7 +266,7 @@ GoodDeedScheduler (WorkManager) → Notification → CameraCapture
 | Permission | Notes |
 |---|---|
 | `PACKAGE_USAGE_STATS` | Done (Phase 1). See the gotcha below. |
-| `BIND_ACCESSIBILITY_SERVICE` | Done (Phase 2a). Enabled by the user in Settings only — adb cannot grant it on ColorOS. `flagReportViewIds` is mandatory or `viewIdResourceName` is always null and every rule silently stops matching. `packageNames` in the config is the privacy boundary. |
+| `BIND_ACCESSIBILITY_SERVICE` | Done (Phase 2a). `flagReportViewIds` is mandatory or `viewIdResourceName` is always null and every rule silently stops matching. `packageNames` in the config is the privacy boundary. **adb can enable it** on this build — see the note below. |
 | VPN consent | Not a manifest permission — triggered by `VpnService.prepare()`. Declare the service with `BIND_VPN_SERVICE`. |
 | `POST_NOTIFICATIONS` | Runtime, Android 13+ |
 | `CAMERA` | Standard runtime permission |
@@ -177,6 +274,37 @@ GoodDeedScheduler (WorkManager) → Notification → CameraCapture
 Save good-deed photos to app-private storage (`context.filesDir` / `getExternalFilesDir(null)`), never shared storage — this avoids broad storage permissions entirely.
 
 `INTERNET` **is** required — corrected on device. The original reasoning ("the VPN intercepts other apps' traffic, it doesn't make calls of its own") holds for *interception* but not for *relaying*: the relay opens its own sockets to forward packets onward. Without it every `DatagramSocket()` throws `EPERM (Operation not permitted)`, the relay thread dies on its first packet, and the tunnel becomes a black hole that silently eats all traffic from the apps it captures — with no crash and nothing in logcat.
+
+### What adb can and cannot do on CPH2585 (Android 16, ColorOS)
+
+Measured, because the earlier note here was wrong in one direction and right in
+another:
+
+- **Enabling the accessibility service from adb works.** Append — never
+  overwrite, or you silently disable whatever the user already had on:
+
+  ```bash
+  EXISTING=$(adb shell settings get secure enabled_accessibility_services)
+  adb shell settings put secure enabled_accessibility_services \
+    "$EXISTING:com.orbis.app/com.orbis.app.surface.OrbisAccessibilityService"
+  adb shell settings put secure accessibility_enabled 1
+  ```
+
+  A reinstall drops ORBIS back out of that list, so re-apply it after
+  `connectedAndroidTest`.
+
+- **`appops set` and `pm clear` are blocked** — both throw `SecurityException`
+  (`MANAGE_APP_OPS_MODES` / `CLEAR_APP_USER_DATA`). So usage access cannot be
+  granted from the shell here, and app data cannot be wiped that way. To reset
+  the database, pull it with `run-as`, edit it, and push it back.
+
+- **There is no `sqlite3` binary on the device.** Same workaround:
+  `adb exec-out run-as com.orbis.app cat databases/orbis.db > local.db`.
+
+- **This app's own logcat tags are dropped.** `Log.i(TAG, …)` from `OrbisVpn`
+  and `OrbisSurface` mostly never appears, which is exactly why the packet
+  counters are surfaced on the Controls screen instead. Verify the tunnel from
+  `ip addr show tun0` and `dumpsys connectivity`, not from logcat.
 
 ### Usage-access gotchas (learned the hard way)
 
