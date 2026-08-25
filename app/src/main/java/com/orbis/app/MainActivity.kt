@@ -30,14 +30,17 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.orbis.app.deed.GoodDeedScheduler
+import com.orbis.app.settings.UiSettings
 import com.orbis.app.surface.AccessibilityAccess
 import com.orbis.app.throttle.ThrottleSettings
+import com.orbis.app.ui.AboutScreen
 import com.orbis.app.ui.ControlsScreen
 import com.orbis.app.ui.GoodDeedScreen
 import com.orbis.app.ui.GoodDeedViewModel
 import com.orbis.app.ui.HomeScreen
 import com.orbis.app.ui.HomeViewModel
 import com.orbis.app.ui.ProtectionUiState
+import com.orbis.app.ui.SimpleHomeScreen
 import com.orbis.app.ui.theme.OrbisTheme
 import com.orbis.app.usage.UsageAccess
 import com.orbis.app.vpn.OrbisVpnService
@@ -53,6 +56,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThrottleSettings.init(this)
+        UiSettings.init(this)
         GoodDeedScheduler.schedule(this)
         enableEdgeToEdge()
 
@@ -73,6 +77,11 @@ private enum class Destination(
     HOME("Home", R.drawable.ic_nav_home),
     DEEDS("Deeds", R.drawable.ic_nav_deeds),
     CONTROLS("Controls", R.drawable.ic_nav_controls),
+
+    // A tab rather than a menu item behind the header: the explainer is only
+    // useful to someone who has not worked the app out yet, and that is exactly
+    // the person who will not go looking in an overflow menu for it.
+    ABOUT("About", R.drawable.ic_nav_about),
 }
 
 @Composable
@@ -81,6 +90,10 @@ private fun OrbisApp(openOnDeeds: Boolean) {
 
     val homeViewModel: HomeViewModel = viewModel(factory = HomeViewModel.factory(context))
     val protection by homeViewModel.protection.collectAsStateWithLifecycle()
+
+    // Which home screen to show. Cheap to collect at this level - it changes only
+    // when the user flips the switch, unlike the packet counters.
+    val simpleMode by UiSettings.simpleMode.collectAsStateWithLifecycle()
 
     var destination by rememberSaveable {
         mutableStateOf(if (openOnDeeds) Destination.DEEDS else Destination.HOME)
@@ -138,7 +151,10 @@ private fun OrbisApp(openOnDeeds: Boolean) {
             Destination.HOME -> HomeRoute(
                 viewModel = homeViewModel,
                 protection = protection,
+                simpleMode = simpleMode,
                 onOpenDeeds = { destination = Destination.DEEDS },
+                onOpenAbout = { destination = Destination.ABOUT },
+                onSimpleModeChange = UiSettings::setSimpleMode,
                 modifier = contentModifier,
             )
 
@@ -177,28 +193,88 @@ private fun OrbisApp(openOnDeeds: Boolean) {
                 },
                 modifier = contentModifier,
             )
+
+            Destination.ABOUT -> AboutRoute(
+                protection = protection,
+                modifier = contentModifier,
+            )
         }
     }
 }
 
+/**
+ * Home, in one of its two forms.
+ *
+ * Both are fed from the same [HomeViewModel] and the same state - the difference
+ * is entirely presentational, so switching modes never re-queries anything or
+ * shows the user two disagreeing versions of today.
+ */
 @Composable
 private fun HomeRoute(
     viewModel: HomeViewModel,
     protection: ProtectionUiState,
+    simpleMode: Boolean,
     onOpenDeeds: () -> Unit,
+    onOpenAbout: () -> Unit,
+    onSimpleModeChange: (Boolean) -> Unit,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    HomeScreen(
-        state = state,
-        protection = protection,
-        today = LocalDate.now(),
+    val grantUsageAccess = { context.startActivity(UsageAccess.settingsIntent()) }
+    val enableDetection = { context.startActivity(AccessibilityAccess.settingsIntent()) }
+    val enableThrottle = { ThrottleSettings.setEnabled(true) }
+
+    if (simpleMode) {
+        SimpleHomeScreen(
+            state = state,
+            protection = protection,
+            onGrantUsageAccess = grantUsageAccess,
+            onEnableDetection = enableDetection,
+            onEnableThrottle = enableThrottle,
+            onOpenDeeds = onOpenDeeds,
+            onOpenAbout = onOpenAbout,
+            onShowDetails = { onSimpleModeChange(false) },
+            modifier = modifier,
+        )
+    } else {
+        HomeScreen(
+            state = state,
+            protection = protection,
+            today = LocalDate.now(),
+            onGrantUsageAccess = grantUsageAccess,
+            onEnableDetection = enableDetection,
+            onEnableThrottle = enableThrottle,
+            onOpenDeeds = onOpenDeeds,
+            onShowSimple = { onSimpleModeChange(true) },
+            modifier = modifier,
+        )
+    }
+}
+
+/**
+ * The explainer.
+ *
+ * Takes the permission flags so the page can say which ones are already on -
+ * this is the screen someone reads while deciding whether to grant them.
+ */
+@Composable
+private fun AboutRoute(protection: ProtectionUiState, modifier: Modifier) {
+    val context = LocalContext.current
+    val versionName = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull().orEmpty()
+    }
+
+    AboutScreen(
+        versionName = versionName,
+        hasUsageAccess = protection.hasUsageAccess,
+        hasDetection = protection.hasDetection,
+        autoThrottle = protection.autoThrottle,
         onGrantUsageAccess = { context.startActivity(UsageAccess.settingsIntent()) },
         onEnableDetection = { context.startActivity(AccessibilityAccess.settingsIntent()) },
-        onEnableThrottle = { ThrottleSettings.setEnabled(true) },
-        onOpenDeeds = onOpenDeeds,
         modifier = modifier,
     )
 }

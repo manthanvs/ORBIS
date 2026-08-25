@@ -45,7 +45,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.orbis.app.dashboard.DayTotal
 import com.orbis.app.dashboard.ReclaimedSummary
 import com.orbis.app.surface.DetectedSurface
@@ -89,6 +88,7 @@ fun HomeScreen(
     onEnableDetection: () -> Unit,
     onEnableThrottle: () -> Unit,
     onOpenDeeds: () -> Unit,
+    onShowSimple: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -98,7 +98,13 @@ fun HomeScreen(
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        HomeHeader(today)
+        // Same header component as simple mode, so the switch back is in the
+        // same place on both screens.
+        OrbisHomeHeader(
+            simple = false,
+            onModeChange = { simple -> if (simple) onShowSimple() },
+            trailingLabel = HEADER_DATE.format(today),
+        )
 
         ProtectionCard(
             protection = protection,
@@ -152,28 +158,6 @@ fun HomeScreen(
         )
 
         Spacer(Modifier.height(8.dp))
-    }
-}
-
-@Composable
-private fun HomeHeader(today: LocalDate) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = "ORBIS",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = HEADER_DATE.format(today),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -803,6 +787,7 @@ private fun HomeScreenPreview() {
             onEnableDetection = {},
             onEnableThrottle = {},
             onOpenDeeds = {},
+            onShowSimple = {},
         )
     }
 }
