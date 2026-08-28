@@ -9,6 +9,8 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
@@ -42,9 +44,13 @@ import kotlin.concurrent.thread
  * Scope is deliberately tiny, because a VPN that misbehaves takes the user's
  * connectivity with it:
  *
- *  - `addAllowedApplication` limits the tunnel to Instagram, YouTube and
- *    Snapchat. **WhatsApp's packets never enter this service at all** - enforced
- *    by the OS, not by logic in here.
+ *  - `addAllowedApplication` limits the tunnel to the **single app whose
+ *    short-form feed is on screen**, named by the caller. A tunnel applies its
+ *    delay to everything it carries and cannot tell one app's packets from
+ *    another's, so routing every target app at once meant watching Instagram
+ *    Reels also degraded YouTube, Snapchat and all seven routed browsers.
+ *    **WhatsApp's packets never enter this service at all** - enforced by the
+ *    OS, not by logic in here.
  *  - Both IPv4 and IPv6 UDP are relayed. Handling only IPv4 is not a partial
  *    implementation but a broken one: the tunnel captures IPv6 too, so anything
  *    unhandled is silently blackholed rather than merely un-throttled.
@@ -153,31 +159,99 @@ class OrbisVpnService : VpnService() {
     @Volatile
     private var active = false
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return when (intent?.action) {
-            ACTION_STOP -> {
-                shutdown()
-                stopSelf()
-                START_NOT_STICKY
-            }
+    /** What this tunnel is currently routing; empty when it is down. */
+    private var routedNow: List<String> = emptyList()
 
-            else -> {
-                val requested = intent?.getLongExtra(EXTRA_DELAY_MILLIS, 0L) ?: 0L
-                if (active) {
-                    // Already up: adopt the new intensity rather than ignoring it,
-                    // so the delay tracks usage across a long session.
-                    delayMillis = requested
-                    publishStats()
-                } else {
-                    delayMillis = requested
-                    start()
-                }
-                START_STICKY
-            }
+    /**
+     * Every start and stop runs here, one at a time.
+     *
+     * `establish()` is a binder round trip and [shutdown] joins three threads, so
+     * neither belongs on the main thread - and re-pointing the tunnel at a
+     * different app is a shutdown immediately followed by a start, which must not
+     * interleave with another request to do the same thing.
+     */
+    private var lifecycleThread: HandlerThread? = null
+    private var lifecycleHandler: Handler? = null
+
+    /** Bounded manual sessions stop themselves; see [EXTRA_AUTO_STOP_MILLIS]. */
+    private val autoStop = Runnable {
+        if (active) {
+            shutdown()
+            status = "test window ended"
+            publishStats()
+            stopSelf()
         }
     }
 
-    private fun start() {
+    override fun onCreate() {
+        super.onCreate()
+        val thread = HandlerThread("orbis-vpn-lifecycle").also { it.start() }
+        lifecycleThread = thread
+        lifecycleHandler = Handler(thread.looper)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Read the intent on this thread: it is recycled once onStartCommand
+        // returns, so the lifecycle thread must never be handed the object itself.
+        if (intent?.action == ACTION_STOP) {
+            post {
+                shutdown()
+                stopSelf()
+            }
+            return START_NOT_STICKY
+        }
+
+        val requestedDelay = intent?.getLongExtra(EXTRA_DELAY_MILLIS, 0L) ?: 0L
+        val requestedRoute = intent?.getStringArrayListExtra(EXTRA_ROUTE_PACKAGES)?.toList()
+            ?: emptyList()
+        val autoStopMillis = intent?.getLongExtra(EXTRA_AUTO_STOP_MILLIS, 0L) ?: 0L
+
+        post { handleStart(requestedDelay, requestedRoute, autoStopMillis) }
+        return START_STICKY
+    }
+
+    private fun post(block: () -> Unit) {
+        val handler = lifecycleHandler
+        if (handler == null) block() else handler.post(block)
+    }
+
+    /**
+     * Brings the tunnel up, re-points it at a different app, or just re-scales it.
+     *
+     * Android fixes the allow-list at `establish()` time, so a change of routed
+     * app is a full rebuild. A change of delay alone is not - that is adopted in
+     * place, which is what lets the throttle track usage across a long session
+     * rather than staying frozen at whatever it was when the feed first appeared.
+     */
+    private fun handleStart(delay: Long, route: List<String>, autoStopMillis: Long) {
+        if (route.isEmpty()) {
+            status = "nothing to route"
+            publishStats()
+            return
+        }
+
+        if (active && route == routedNow) {
+            delayMillis = delay
+            status = "tunnel up, delay ${delay}ms"
+            armAutoStop(autoStopMillis)
+            publishStats()
+            return
+        }
+
+        if (active) shutdown()
+
+        delayMillis = delay
+        start(route)
+        armAutoStop(autoStopMillis)
+    }
+
+    private fun armAutoStop(millis: Long) {
+        lifecycleHandler?.removeCallbacks(autoStop)
+        if (millis > 0L) lifecycleHandler?.postDelayed(autoStop, millis)
+    }
+
+    @Synchronized
+    private fun start(route: List<String>) {
         if (active) return
 
         val builder = Builder()
@@ -198,7 +272,7 @@ class OrbisVpnService : VpnService() {
         }.onFailure { status = "IPv6 setup failed: ${it.message}" }
 
         var allowed = 0
-        routedPackages().forEach { packageName ->
+        route.forEach { packageName ->
             try {
                 builder.addAllowedApplication(packageName)
                 allowed++
@@ -242,6 +316,8 @@ class OrbisVpnService : VpnService() {
         goForeground()
 
         active = true
+        routedNow = route
+        routed.value = route
         running.value = true
         packetsRead.set(0)
         udpPacketsForwarded.set(0)
@@ -257,7 +333,7 @@ class OrbisVpnService : VpnService() {
 
         status = "tunnel up, delay ${delayMillis}ms"
         publishStats()
-        Log.i(TAG, "tunnel up for $allowed app(s), delay=${delayMillis}ms")
+        Log.i(TAG, "tunnel up for ${route.joinToString()}, delay=${delayMillis}ms")
 
         // Both streams wrap the *same* descriptor. Neither is ever closed: the
         // ParcelFileDescriptor owns that fd, and closing it three times risks
@@ -726,7 +802,12 @@ class OrbisVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        // Drop queued work first, so nothing re-establishes a tunnel on the way out.
+        lifecycleHandler?.removeCallbacksAndMessages(null)
         shutdown()
+        lifecycleThread?.quitSafely()
+        lifecycleThread = null
+        lifecycleHandler = null
         super.onDestroy()
     }
 
@@ -736,9 +817,12 @@ class OrbisVpnService : VpnService() {
      * A leaked interface keeps routing the user's traffic after ORBIS is gone, so
      * this must run on every exit path - stop, revoke, destroy and failure.
      */
+    @Synchronized
     private fun shutdown() {
         if (!active && tunnel == null) return
         active = false
+        routedNow = emptyList()
+        routed.value = emptyList()
         running.value = false
 
         // Wakes the selector out of select() and the delay thread out of take().
@@ -792,6 +876,7 @@ class OrbisVpnService : VpnService() {
             packetsDropped = packetsDropped.get(),
             activeFlows = flowsV4.size + flowsV6.size,
             delayMillis = delayMillis,
+            routed = routedNow,
             status = status,
         )
     }
@@ -810,6 +895,23 @@ class OrbisVpnService : VpnService() {
         const val ACTION_START = "com.orbis.app.vpn.START"
         const val ACTION_STOP = "com.orbis.app.vpn.STOP"
         const val EXTRA_DELAY_MILLIS = "delayMillis"
+
+        /** Which packages this session may route. See [handleStart]. */
+        const val EXTRA_ROUTE_PACKAGES = "routePackages"
+
+        /**
+         * Stop this session on a timer, regardless of what the screen is doing.
+         *
+         * The automatic path does not use it - there, the accessibility gate's
+         * watchdog owns teardown. It exists for the manual diagnostic on the
+         * Controls screen, which nothing else would ever bring down: a tunnel
+         * raised by hand used to stay up until the user remembered to stop it,
+         * dropping every routed app's TCP the whole time.
+         */
+        const val EXTRA_AUTO_STOP_MILLIS = "autoStopMillis"
+
+        /** How long the manual diagnostic on the Controls screen runs for. */
+        const val MANUAL_TEST_MILLIS = 30_000L
 
         private const val CHANNEL_ID = "orbis_throttle"
         private const val NOTIFICATION_ID = 1
@@ -845,8 +947,23 @@ class OrbisVpnService : VpnService() {
         private val running = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = running.asStateFlow()
 
+        private val routed = MutableStateFlow<List<String>>(emptyList())
+
+        /**
+         * The packages the live tunnel is routing, or empty when it is down.
+         *
+         * The gate compares against this rather than remembering what it last
+         * asked for: the service is the only thing that knows whether a request
+         * actually took effect, and local copies went stale whenever the watchdog
+         * stopped the tunnel behind the gate's back.
+         */
+        val routedApps: StateFlow<List<String>> = routed.asStateFlow()
+
         @Volatile
         private var delayMillis = 0L
+
+        /** The delay the live tunnel is applying, for the gate's change check. */
+        val currentDelayMillis: Long get() = delayMillis
 
         /**
          * Diagnostics are surfaced in the UI rather than logged, because ColorOS
@@ -877,27 +994,44 @@ class OrbisVpnService : VpnService() {
         val tunnelStats: StateFlow<TunnelStats> = stats.asStateFlow()
 
         /**
-         * Packages the tunnel may route.
+         * Every package ORBIS is *ever* willing to route - the upper bound, not
+         * the routing for any one session.
          *
          * Browsers are included because `youtube.com/shorts` opens in a browser on
          * many devices, and detection alone throttles nothing if the traffic never
          * enters the tunnel.
          *
+         * A live session routes one of these at a time, chosen by
+         * [com.orbis.app.throttle.ThrottleEngine.routeFor] from the surface on
+         * screen. Only the manual diagnostic uses the whole set.
+         *
          * Caveat worth keeping in mind: while a browser is routed, *all* of its
          * traffic goes through the tunnel, not just the Shorts tab - a VPN cannot
-         * see tabs. Gating on [com.orbis.app.surface.Surface.BROWSER_SHORT_VIDEO]
-         * keeps that window as narrow as the design allows.
+         * see tabs.
          *
          * WhatsApp is absent, and must stay absent.
          */
         fun routedPackages(): List<String> =
             TargetApp.throttleable.map { it.packageName } + BrowserPackages.ALL
 
-        fun start(context: Context, delayMillis: Long = 0L) {
+        /**
+         * @param routePackages the apps this session may carry. Defaults to every
+         *   throttleable app, which is only right for the manual diagnostic; the
+         *   automatic gate always names the single app on screen.
+         * @param autoStopMillis a hard stop, or 0 to leave teardown to the caller.
+         */
+        fun start(
+            context: Context,
+            delayMillis: Long = 0L,
+            routePackages: List<String> = routedPackages(),
+            autoStopMillis: Long = 0L,
+        ) {
             context.startService(
                 Intent(context, OrbisVpnService::class.java)
                     .setAction(ACTION_START)
                     .putExtra(EXTRA_DELAY_MILLIS, delayMillis)
+                    .putStringArrayListExtra(EXTRA_ROUTE_PACKAGES, ArrayList(routePackages))
+                    .putExtra(EXTRA_AUTO_STOP_MILLIS, autoStopMillis)
             )
         }
 
@@ -922,5 +1056,7 @@ data class TunnelStats(
     val packetsDropped: Long = 0L,
     val activeFlows: Int = 0,
     val delayMillis: Long = 0L,
+    /** The packages this session is routing - what is actually being slowed. */
+    val routed: List<String> = emptyList(),
     val status: String = "idle",
 )

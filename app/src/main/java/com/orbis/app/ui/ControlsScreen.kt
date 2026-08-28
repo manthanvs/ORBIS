@@ -124,8 +124,9 @@ private fun TunnelCard(
             }
 
             Text(
-                text = "Instagram, YouTube, Snapchat and browsers. WhatsApp is not " +
-                    "routed through the tunnel at all.",
+                text = "Only the one app whose short-form feed is on screen is " +
+                    "routed, so slowing Reels leaves YouTube and your browser " +
+                    "alone. WhatsApp is never routed at all.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -151,8 +152,18 @@ private fun TunnelCard(
             }
 
             Button(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
-                Text(if (tunnel.running) "Stop tunnel" else "Start tunnel")
+                Text(if (tunnel.running) "Stop tunnel" else "Run a 30-second test")
             }
+
+            // The manual path routes every app ORBIS will ever route, not just the
+            // one on screen, so it says so rather than looking like the real thing.
+            Text(
+                text = "The test routes all target apps at once for 30 seconds, then " +
+                    "stops itself. It is for checking the relay, not for everyday " +
+                    "use - leave the switch above to do that.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             HorizontalDivider()
             Diagnostics(tunnel)
@@ -174,12 +185,24 @@ private fun Diagnostics(tunnel: TunnelStats) {
         DiagnosticRow("shed (back-pressure)", tunnel.packetsDropped.toString())
         DiagnosticRow("open flows", tunnel.activeFlows.toString())
         DiagnosticRow("delay", "${tunnel.delayMillis}ms")
+        DiagnosticRow("routing", routedLabel(tunnel.routed))
         Text(
             text = tunnel.status,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 4.dp),
         )
+    }
+}
+
+/**
+ * What the tunnel is carrying, named so the per-app routing is verifiable from
+ * the screen rather than only from `dumpsys connectivity`.
+ */
+private fun routedLabel(routed: List<String>): String = when {
+    routed.isEmpty() -> "nothing"
+    else -> routed.joinToString {
+        TargetApp.fromPackage(it)?.displayName ?: it.substringAfterLast('.')
     }
 }
 

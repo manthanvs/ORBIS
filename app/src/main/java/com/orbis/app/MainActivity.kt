@@ -1,6 +1,7 @@
 package com.orbis.app
 
 import android.app.Activity
+import android.content.Context
 import android.net.VpnService
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -32,6 +33,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.orbis.app.deed.GoodDeedScheduler
 import com.orbis.app.settings.UiSettings
 import com.orbis.app.surface.AccessibilityAccess
+import com.orbis.app.throttle.ThrottleEngine
 import com.orbis.app.throttle.ThrottleSettings
 import com.orbis.app.ui.AboutScreen
 import com.orbis.app.ui.ControlsScreen
@@ -106,7 +108,7 @@ private fun OrbisApp(openOnDeeds: Boolean) {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && startAfterConsent) {
-            OrbisVpnService.start(context)
+            startTunnelTest(context)
         }
         startAfterConsent = false
     }
@@ -168,7 +170,7 @@ private fun OrbisApp(openOnDeeds: Boolean) {
                     } else {
                         val consent = VpnService.prepare(context)
                         if (consent == null) {
-                            OrbisVpnService.start(context)
+                            startTunnelTest(context)
                         } else {
                             // Starting it was the point, so carry that intent
                             // across the dialog.
@@ -200,6 +202,24 @@ private fun OrbisApp(openOnDeeds: Boolean) {
             )
         }
     }
+}
+
+/**
+ * The manual tunnel on the Controls screen, as a bounded diagnostic.
+ *
+ * It routes every app ORBIS is willing to route, which is far wider than the
+ * automatic path - that one points the tunnel at the single app on screen. So it
+ * is deliberately given a hard stop: raised by hand it used to stay up until the
+ * user remembered to stop it, and while it is up every routed app's TCP is
+ * dropped. Auto-throttle off meant nothing would ever take it down at all.
+ */
+private fun startTunnelTest(context: Context) {
+    OrbisVpnService.start(
+        context,
+        delayMillis = ThrottleEngine.MAX_DELAY_MILLIS,
+        routePackages = OrbisVpnService.routedPackages(),
+        autoStopMillis = OrbisVpnService.MANUAL_TEST_MILLIS,
+    )
 }
 
 /**

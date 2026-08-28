@@ -131,40 +131,55 @@ class OrbisAccessibilityService : AccessibilityService() {
             }
 
             SurfaceMonitor.publish(surface, activePackage, System.currentTimeMillis())
-            applyThrottleGate(surface, now)
+            applyThrottleGate(surface, activePackage, now)
         } finally {
             root.recycleCompat()
         }
     }
 
     /**
-     * Brings the tunnel up only while a short-form feed is on screen, and takes it
-     * down again afterwards. Without this the tunnel would be slowing - and, for
+     * Brings the tunnel up only while a short-form feed is on screen, pointed only
+     * at the app showing it, and takes it down again afterwards.
+     *
+     * Both halves matter. Without the gate the tunnel would be slowing - and, for
      * TCP and anything it cannot relay, breaking - traffic during DMs, Stories and
-     * ordinary browsing.
+     * ordinary browsing. Without the routing it would be doing that to every
+     * target app at once, so watching Reels degraded YouTube, Snapchat and each
+     * routed browser too.
      */
-    private fun applyThrottleGate(surface: Surface, nowMillis: Long) {
+    private fun applyThrottleGate(surface: Surface, activePackage: String, nowMillis: Long) {
         if (!ThrottleSettings.enabled.value) return
 
-        val running = OrbisVpnService.isRunning.value
-
-        if (surface.throttled) {
-            lastThrottledMillis = nowMillis
-            if (!running && hasConsent(nowMillis)) {
-                // Real usage, not EMPTY: this is what makes the throttle adaptive.
-                val delay = ThrottleEngine
-                    .ruleFor(surface, UsageProfileHolder.profile.value)
-                    .delayMillis
-                OrbisVpnService.start(this, delay)
-                scheduleWatchdog()
-            }
+        if (!surface.throttled) {
+            // Teardown is driven by the watchdog rather than by this event, because
+            // the events stop arriving the moment the user leaves the observed apps -
+            // which is exactly when the tunnel most needs to come down.
+            if (OrbisVpnService.isRunning.value) scheduleWatchdog()
             return
         }
 
-        // Teardown is driven by the watchdog rather than by this event, because
-        // the events stop arriving the moment the user leaves the observed apps -
-        // which is exactly when the tunnel most needs to come down.
-        if (running) scheduleWatchdog()
+        lastThrottledMillis = nowMillis
+        if (!hasConsent(nowMillis)) return
+
+        // Fails closed: a throttled surface ORBIS cannot attribute to one app is
+        // left alone rather than routed as a guess.
+        val route = ThrottleEngine.routeFor(surface, activePackage)
+        if (route.isEmpty()) return
+
+        // Real usage, not EMPTY: this is what makes the throttle adaptive.
+        val delay = ThrottleEngine
+            .ruleFor(surface, UsageProfileHolder.profile.value)
+            .delayMillis
+
+        // Compared against the service rather than a local copy, so a tunnel the
+        // watchdog stopped behind this gate's back is noticed. Re-sending on every
+        // evaluation would be a startService round trip several times a second.
+        val current = OrbisVpnService.isRunning.value &&
+            OrbisVpnService.routedApps.value == route &&
+            OrbisVpnService.currentDelayMillis == delay
+
+        if (!current) OrbisVpnService.start(this, delay, route)
+        scheduleWatchdog()
     }
 
     /**

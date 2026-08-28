@@ -50,10 +50,13 @@ Re-verified on CPH2585 after the selector rewrite, one Reels session:
 not observe — the watchdog, which is the case the old hysteresis never handled.
 
 The WhatsApp invariant is enforced by the OS and observable: while the tunnel is
-up, `dumpsys connectivity` shows the ORBIS network's
-`Uids: <{10156, 10171, 10401, 10447, 10460, …}>` — Chrome, YouTube, Snapchat,
-Edge, Instagram. WhatsApp's uid is absent. That is the check to re-run if the
-routing logic is ever touched.
+up, `dumpsys connectivity` shows the ORBIS network's `Uids:` set. WhatsApp's uid
+is absent. That is the check to re-run if the routing logic is ever touched.
+
+**The tunnel now routes one app at a time**, not all of them. `Uids:` should show
+a *single* uid during automatic throttling — Instagram's while Reels is on
+screen, YouTube's during Shorts. Seeing the old five-uid set means something has
+re-broadened the routing; see the routing invariant below.
 
 All five phases are built. The database is at **version 3**: `MIGRATION_1_2` adds `good_deed`, `MIGRATION_2_3` reorders `usage_log`'s unique index to lead with `date` and indexes `good_deed`. There is deliberately **no `fallbackToDestructiveMigration`** — the usage history in this database is what the dashboard's baseline is computed from, so wiping it would silently destroy real data and reset "reclaimed time" to "still learning".
 
@@ -125,6 +128,10 @@ These are design intent, not implementation detail. Do not relax them without as
 
 - **WhatsApp is never throttled.** It's a communication tool, not passive-scroll content. This is a dedicated negative test case, not an afterthought.
 - **Only short-form video surfaces are throttled**: Instagram Reels, YouTube Shorts, Snapchat Spotlight, and those same feeds opened in a browser. Instagram **Stories**, DMs, the feed, long-form YouTube and Snapchat chats stay at full speed. *(Revised from the original whole-app scope. A VPN alone cannot do this — HTTPS hides the URL path and Reels shares CDN hosts with Stories — so an AccessibilityService supplies the on-screen context and the VPN acts only while gated on. See the survey section for the measured evidence.)*
+
+- **Route only the app whose feed is on screen.** A tunnel delays everything it carries and cannot tell one app's packets from another's, so routing every target app at once meant watching Reels also degraded YouTube, Snapchat and all seven browsers — and dropped their TCP. `ThrottleEngine.routeFor` names the single package; `OrbisVpnService` rebuilds the interface when it changes, because Android fixes the allow-list at `establish()` time. The full set in `routedPackages()` is the upper bound ORBIS will *ever* route, and only the manual diagnostic uses it.
+
+- **A tunnel nothing will take down must not exist.** The automatic path is torn down by the accessibility watchdog. The manual diagnostic on Controls has no watchdog — auto-throttle is off by default, so the gate returns early and never arms one — so it carries a hard `EXTRA_AUTO_STOP_MILLIS` stop instead. It used to stay up until the user remembered it, dropping every routed app's TCP the whole time.
 - **Detection fails safe to `NORMAL`.** An unrecognised screen is never throttled. A false positive slows something the user asked to keep fast, which is worse than missing a Reel.
 - **Match view ids exactly and scope them per package.** Never substring-match: `reel_*` is Stories in Instagram but Shorts in YouTube, and Snapchat's nav bar carries `ngs_spotlight_icon_container` on every screen.
 - **Entirely on-device.** All data local; no server component, no cloud storage, no sync.
@@ -177,6 +184,23 @@ toolbar is hidden.
 
 Nodes are recycled below API 33 (`recycleCompat`); the old walk leaked all of
 them.
+
+### Tunnel lifecycle runs on its own thread
+
+`establish()` is a binder round trip and `shutdown()` joins three threads, so
+neither belongs on the main thread — and re-pointing the tunnel at a different
+app is a shutdown immediately followed by a start, which must not interleave with
+another request to do the same. Every start and stop is posted to
+**orbis-vpn-lifecycle** and runs one at a time; `start`/`shutdown` are
+`@Synchronized` because `onDestroy` and `onRevoke` still arrive on the main
+thread.
+
+`onStartCommand` reads its extras *before* posting: the `Intent` is recycled once
+it returns, so the lifecycle thread must never be handed the object itself.
+
+Changing only the delay does **not** rebuild the tunnel — it is adopted in place.
+That is what lets the throttle re-scale across a long session instead of staying
+frozen at whatever usage said when the feed first appeared.
 
 ### The tunnel comes down on a watchdog, not on the next event
 
@@ -326,6 +350,7 @@ Build in this order. Verify each "Done when" before moving on. Commit after ever
 | 2c | ~~Throttle gated on surface~~ | **Done** — tunnel only up during Reels/Shorts/Spotlight, usage-scaled delay (400 ms observed), WhatsApp absent from the tunnel's `Uids:` set. Side-by-side Reels-vs-Stories timing still worth doing if you want a number for the write-up. |
 | 3 | ~~Usage profile + adaptive intensity~~ | **Done** — `UsageProfileHolder` feeds real usage into `ThrottleEngine`; delay scales 120 ms → 400 ms with daily use |
 | 3 | Usage profile + adaptive intensity | Highest-usage app gets the strongest throttle, across two usage patterns |
+| 6 | ~~Surface-scoped routing~~ | **Done** — one app routed at a time, delay re-scales in place, manual tunnel self-stops after 30 s, browser short-video scales with the heaviest short-form app instead of being pinned at 120 ms |
 | 4 | ~~Dashboard~~ | **Done** — reclaimed time vs the user's own baseline, 7-day trend |
 | 5 | ~~Good deed challenge~~ | **Done** — WorkManager prompt → camera → Room entry → streak. The full loop still wants one manual run-through on a device. |
 

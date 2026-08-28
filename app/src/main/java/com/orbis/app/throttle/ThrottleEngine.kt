@@ -1,5 +1,6 @@
 package com.orbis.app.throttle
 
+import com.orbis.app.surface.BrowserPackages
 import com.orbis.app.surface.Surface
 import com.orbis.app.usage.TargetApp
 import com.orbis.app.usage.UsageProfile
@@ -47,8 +48,7 @@ object ThrottleEngine {
         if (passthrough) return ThrottleRule(0L, "passthrough (Phase 2b)")
         if (!surface.throttled) return ThrottleRule.NONE
 
-        val app = surface.owningApp()
-        val minutes = app?.let { profile.durationOf(it) / 60_000L } ?: 0L
+        val minutes = weightMillisFor(surface, profile) / 60_000L
 
         // Ramp from the base delay up to the cap as daily use approaches the
         // heavy-use threshold, so a light user is barely touched.
@@ -60,6 +60,48 @@ object ThrottleEngine {
             delayMillis = scaled.coerceIn(BASE_DELAY_MILLIS, MAX_DELAY_MILLIS),
             reason = "$surface, ${minutes}m today",
         )
+    }
+
+    /**
+     * The usage a surface's intensity is scaled by.
+     *
+     * In-app surfaces are scaled by their own app. A short-form feed in a browser
+     * has no owning app, and returning zero for it pinned browser Shorts at the
+     * base delay however heavily the user watched them - so it is scaled by the
+     * heaviest short-form app instead. The habit is the user's, not the app's.
+     */
+    private fun weightMillisFor(surface: Surface, profile: UsageProfile): Long =
+        when (surface) {
+            Surface.BROWSER_SHORT_VIDEO ->
+                profile.heaviestThrottleable?.durationMillis ?: 0L
+
+            else -> surface.owningApp()?.let { profile.durationOf(it) } ?: 0L
+        }
+
+    /**
+     * The packages the tunnel should route while [surface] is on screen - the one
+     * app the user is actually watching, and nothing else.
+     *
+     * This is the difference between "slow the reel" and "slow the phone". Routing
+     * every target app at once meant watching Instagram Reels also degraded
+     * YouTube, Snapchat and every routed browser, because a tunnel applies its
+     * delay to all the traffic it carries and cannot tell which app it came from.
+     *
+     * [activePackage] is only consulted for browsers, where the surface itself
+     * does not name the app.
+     */
+    fun routeFor(surface: Surface, activePackage: String?): List<String> = when (surface) {
+        Surface.REELS -> listOf(TargetApp.INSTAGRAM.packageName)
+        Surface.SHORTS -> listOf(TargetApp.YOUTUBE.packageName)
+        Surface.SPOTLIGHT -> listOf(TargetApp.SNAPCHAT.packageName)
+
+        // Never WhatsApp, and never a package that is not a known browser: the
+        // detector only reports this surface for BrowserPackages.ALL, and this
+        // re-checks rather than trusting it.
+        Surface.BROWSER_SHORT_VIDEO ->
+            activePackage?.takeIf { it in BrowserPackages.ALL }?.let(::listOf).orEmpty()
+
+        Surface.NORMAL -> emptyList()
     }
 
     /** Which app a surface belongs to; browser short-video has no single owner. */
