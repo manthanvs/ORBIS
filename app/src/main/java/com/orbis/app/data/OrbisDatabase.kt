@@ -14,13 +14,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * a further version bump if rules ever become user-editable.
  */
 @Database(
-    entities = [UsageLog::class, GoodDeedEntry::class],
-    version = 3,
+    entities = [UsageLog::class, GoodDeedEntry::class, ClearTimeEntry::class],
+    version = 4,
     exportSchema = false,
 )
 abstract class OrbisDatabase : RoomDatabase() {
     abstract fun usageLogDao(): UsageLogDao
     abstract fun goodDeedDao(): GoodDeedDao
+    abstract fun clearTimeDao(): ClearTimeDao
 
     companion object {
         /**
@@ -70,6 +71,35 @@ abstract class OrbisDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS " +
                         "`index_good_deed_completed_timestampMillis` " +
                         "ON `good_deed` (`completed`, `timestampMillis`)"
+                )
+            }
+        }
+
+        /**
+         * Adds `clear_time` for the earn-back side quest.
+         *
+         * Additive, and `good_deed` is deliberately left in place: the good deed
+         * survives as one of the earn actions, and even if it had not, the rule
+         * about never destroying a user's history applies to it as much as to
+         * `usage_log`.
+         *
+         * The DDL must match what Room generates for [ClearTimeEntry] exactly,
+         * down to the index name, or schema validation throws on the next open.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `clear_time` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`timestampMillis` INTEGER NOT NULL, " +
+                        "`date` TEXT NOT NULL, " +
+                        "`action` TEXT NOT NULL, " +
+                        "`earnedMillis` INTEGER NOT NULL, " +
+                        "`spentMillis` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_clear_time_date` " +
+                        "ON `clear_time` (`date`)"
                 )
             }
         }

@@ -37,8 +37,8 @@ import com.orbis.app.throttle.ThrottleEngine
 import com.orbis.app.throttle.ThrottleSettings
 import com.orbis.app.ui.AboutScreen
 import com.orbis.app.ui.ControlsScreen
-import com.orbis.app.ui.GoodDeedScreen
-import com.orbis.app.ui.GoodDeedViewModel
+import com.orbis.app.ui.EarnScreen
+import com.orbis.app.ui.EarnViewModel
 import com.orbis.app.ui.HomeScreen
 import com.orbis.app.ui.HomeViewModel
 import com.orbis.app.ui.ProtectionUiState
@@ -77,7 +77,10 @@ private enum class Destination(
     @param:DrawableRes val icon: Int,
 ) {
     HOME("Home", R.drawable.ic_nav_home),
-    DEEDS("Deeds", R.drawable.ic_nav_deeds),
+
+    // "Earn", not "Deeds": the good deed is one of the actions now, not the whole
+    // feature, and the tab has to name what the user comes here to do.
+    EARN("Earn", R.drawable.ic_nav_deeds),
     CONTROLS("Controls", R.drawable.ic_nav_controls),
 
     // A tab rather than a menu item behind the header: the explainer is only
@@ -98,7 +101,7 @@ private fun OrbisApp(openOnDeeds: Boolean) {
     val simpleMode by UiSettings.simpleMode.collectAsStateWithLifecycle()
 
     var destination by rememberSaveable {
-        mutableStateOf(if (openOnDeeds) Destination.DEEDS else Destination.HOME)
+        mutableStateOf(if (openOnDeeds) Destination.EARN else Destination.HOME)
     }
 
     // VpnService.prepare() returns an Intent the first time; consent is a system
@@ -154,13 +157,13 @@ private fun OrbisApp(openOnDeeds: Boolean) {
                 viewModel = homeViewModel,
                 protection = protection,
                 simpleMode = simpleMode,
-                onOpenDeeds = { destination = Destination.DEEDS },
+                onOpenDeeds = { destination = Destination.EARN },
                 onOpenAbout = { destination = Destination.ABOUT },
                 onSimpleModeChange = UiSettings::setSimpleMode,
                 modifier = contentModifier,
             )
 
-            Destination.DEEDS -> DeedsRoute(modifier = contentModifier)
+            Destination.EARN -> EarnRoute(modifier = contentModifier)
 
             Destination.CONTROLS -> ControlsRoute(
                 protection = protection,
@@ -300,17 +303,19 @@ private fun AboutRoute(protection: ProtectionUiState, modifier: Modifier) {
 }
 
 @Composable
-private fun DeedsRoute(modifier: Modifier) {
+private fun EarnRoute(modifier: Modifier) {
     val context = LocalContext.current
-    val viewModel: GoodDeedViewModel = viewModel(factory = GoodDeedViewModel.factory(context))
+    val viewModel: EarnViewModel = viewModel(factory = EarnViewModel.factory(context))
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    GoodDeedScreen(
+    EarnScreen(
         state = state,
+        onStartFocus = viewModel::startFocus,
+        onCancelFocus = viewModel::cancelFocus,
         onStartCapture = viewModel::startCapture,
         onCancelCapture = viewModel::cancelCapture,
-        onSave = viewModel::save,
-        onSendTestPrompt = { GoodDeedScheduler.promptNow(context) },
+        onSaveDeed = viewModel::saveDeed,
+        onDismissMessage = viewModel::dismissMessage,
         modifier = modifier,
     )
 }

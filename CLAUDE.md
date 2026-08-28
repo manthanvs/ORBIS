@@ -38,7 +38,8 @@ What exists:
 - `com.orbis.app.vpn` — `Ipv4`/`Ipv6` (pure packet parse/build), `OrbisVpnService` (UDP relay), `TunnelStats`.
 - `com.orbis.app.data` — `UsageLog`/`UsageLogDao`/`OrbisDatabase`, `DatabaseProvider`, `UsageRepository`.
 - `com.orbis.app.dashboard` / `com.orbis.app.deed` — `ReclaimedTime` and `GoodDeedStreak` (both pure and unit-tested), `GoodDeedRepository`, `GoodDeedScheduler`, `DeedPhotoCapture`.
-- `com.orbis.app.ui` — `HomeScreen`/`HomeViewModel`, `ControlsScreen`, `GoodDeedScreen`/`GoodDeedViewModel`.
+- `com.orbis.app.earn` — `EarnAction`, `ClearTime` (pure, unit-tested), `ClearTimeHolder`, `EarnRepository`.
+- `com.orbis.app.ui` — `HomeScreen`/`HomeViewModel`, `ControlsScreen`, `EarnScreen`/`EarnViewModel`, `CaptureSheet`.
 
 Measured behaviour: Reels detected → tunnel up with a usage-scaled delay (400 ms at ~1 h of Instagram), `read 1138 / UDP fwd 1045 / TCP dropped 77`. Browsers are routed too, so `youtube.com/shorts` in Chrome or Edge is throttled.
 
@@ -58,7 +59,7 @@ a *single* uid during automatic throttling — Instagram's while Reels is on
 screen, YouTube's during Shorts. Seeing the old five-uid set means something has
 re-broadened the routing; see the routing invariant below.
 
-All five phases are built. The database is at **version 3**: `MIGRATION_1_2` adds `good_deed`, `MIGRATION_2_3` reorders `usage_log`'s unique index to lead with `date` and indexes `good_deed`. There is deliberately **no `fallbackToDestructiveMigration`** — the usage history in this database is what the dashboard's baseline is computed from, so wiping it would silently destroy real data and reset "reclaimed time" to "still learning".
+All five phases are built. The database is at **version 4**: `MIGRATION_1_2` adds `good_deed`, `MIGRATION_2_3` reorders `usage_log`'s unique index to lead with `date` and indexes `good_deed`, `MIGRATION_3_4` adds `clear_time` for the earn-back loop. There is deliberately **no `fallbackToDestructiveMigration`** — the usage history in this database is what the dashboard's baseline is computed from, so wiping it would silently destroy real data and reset "reclaimed time" to "still learning".
 
 `ThrottleRule` is still not an entity: throttle intensity is derived from usage at runtime by `ThrottleEngine`, so there is nothing to persist until rules become user-editable.
 
@@ -66,14 +67,37 @@ Update this file as real structure lands.
 
 ### UI structure
 
-Three destinations behind a bottom `NavigationBar`, and only the selected one is
+Four destinations behind a bottom `NavigationBar`, and only the selected one is
 composed:
 
-- **Home** (`HomeScreen`) — live protection status, reclaimed-time hero, 7-day
-  chart, today's per-app split, good-deed streak teaser.
-- **Deeds** (`GoodDeedScreen`) — a `LazyColumn`, because the log is unbounded.
-- **Controls** (`ControlsScreen`) — detection state, the tunnel switch, and the
-  packet diagnostics.
+- **Home** (`HomeScreen` / `SimpleHomeScreen`) — live protection status,
+  reclaimed-time hero, 7-day chart, today's per-app split, streak teaser.
+- **Earn** (`EarnScreen`) — the clear-time balance and the actions that top it
+  up. A `LazyColumn`, because the action list grows.
+- **Controls** (`ControlsScreen`) — detection state, the auto-throttle switch,
+  the bounded tunnel test, and the packet diagnostics.
+- **About** (`AboutScreen`) — the explainer.
+
+### The earn-back loop
+
+`ClearTime` is pure and holds the economics; `ClearTimeHolder` is a process-wide
+object for the same reason `SurfaceMonitor` is — the accessibility service cannot
+be bound to, but it is the only thing that knows a feed is on screen, so it has
+to read the balance and charge against it without a repository.
+
+**Spending is metered in memory and flushed every `SPEND_FLUSH_MILLIS` (10 s).**
+The gate re-evaluates several times a second while a feed is up, and a row per
+tick would be hundreds of writes a minute. Up to 10 s of spending is therefore
+lost if the process dies — which *under*-charges the user, the harmless direction
+to be wrong in. Do not "fix" this by writing per tick.
+
+`ClearTimeHolder.charge` clamps each tick to `MAX_TICK_MILLIS` (2 s): a longer gap
+means the user put the phone down or the service was not scheduled, and billing
+the real elapsed time would charge them for time they were not scrolling.
+
+The focus session is verified, not promised: `EarnViewModel` watches
+`SurfaceMonitor` and ends the session if a throttled surface appears. That check
+is free because detection already runs.
 
 `HomeViewModel` owns both halves of the home screen: `state` for the slow-moving
 numbers and `protection` for the live ones. They are separate because the tunnel
@@ -136,6 +160,8 @@ These are design intent, not implementation detail. Do not relax them without as
 - **Match view ids exactly and scope them per package.** Never substring-match: `reel_*` is Stories in Instagram but Shorts in YouTube, and Snapchat's nav bar carries `ngs_spotlight_icon_container` on every screen.
 - **Entirely on-device.** All data local; no server component, no cloud storage, no sync.
 - **Dashboard copy is encouraging, never shame-based.** Restriction alone gets uninstalled; the positive redirect is the whole thesis.
+
+- **The user always holds the lever.** ORBIS slows a feed; it never blocks one, and clear time earned through `EarnAction` buys it back to full speed. Anything that removes the option — a hard block, a lockout, a penalty that cannot be worked off — breaks the thesis, because losing an option provokes more pushback than the habit does. Credit **expires nightly** and is **capped daily**: a bankable balance turns a daily trade into a savings account, and an uncapped one rewards whoever grinds hardest.
 - **The TUN interface must be released on stop.** A VPN service that leaks its interface throttles the user's phone after the app is closed.
 - **Keep the throttle delay modest in development** (a few hundred ms). Cranking it up to make a demo obvious makes the app feel broken instead of intentional.
 

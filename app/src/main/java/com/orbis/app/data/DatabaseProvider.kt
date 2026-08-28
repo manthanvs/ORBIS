@@ -25,7 +25,11 @@ object DatabaseProvider {
             )
                 // Deliberately no fallbackToDestructiveMigration: the usage history
                 // in here is what the dashboard baseline is built from.
-                .addMigrations(OrbisDatabase.MIGRATION_1_2, OrbisDatabase.MIGRATION_2_3)
+                .addMigrations(
+                    OrbisDatabase.MIGRATION_1_2,
+                    OrbisDatabase.MIGRATION_2_3,
+                    OrbisDatabase.MIGRATION_3_4,
+                )
                 .build()
                 .also { instance = it }
         }

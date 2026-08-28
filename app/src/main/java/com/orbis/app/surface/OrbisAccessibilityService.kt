@@ -10,6 +10,8 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.orbis.app.data.UsageRepository
+import com.orbis.app.earn.ClearTimeHolder
+import com.orbis.app.earn.EarnRepository
 import com.orbis.app.throttle.ThrottleEngine
 import com.orbis.app.throttle.ThrottleSettings
 import com.orbis.app.usage.UsageProfileHolder
@@ -47,6 +49,9 @@ class OrbisAccessibilityService : AccessibilityService() {
     /** When a throttled surface was last actually on screen. */
     private var lastThrottledMillis = 0L
 
+    /** When clear-time spending was last written back to the ledger. */
+    private var lastFlushMillis = 0L
+
     /**
      * Cached [VpnService.prepare] result. Consent effectively never changes, but
      * checking it is a round trip to the system server and the gate runs on
@@ -81,9 +86,12 @@ class OrbisAccessibilityService : AccessibilityService() {
 
         // The gate scales the delay by today's usage, but this service may be the
         // first thing to run in the process - the UI need never have opened. Seed
-        // the profile so the first throttle is not stuck at the base delay.
+        // the profile so the first throttle is not stuck at the base delay, and
+        // the clear-time balance so credit earned earlier today is honoured before
+        // the user ever opens the app.
         scope.launch {
             runCatching { UsageRepository.shared(applicationContext).refreshToday() }
+            runCatching { EarnRepository.shared(applicationContext).refresh() }
         }
     }
 
@@ -158,6 +166,18 @@ class OrbisAccessibilityService : AccessibilityService() {
             return
         }
 
+        // Clear time the user has earned buys this feed back to full speed. ORBIS
+        // then gets out of the way completely - including taking the tunnel down,
+        // exactly as it would for a surface that was never throttled. Charging
+        // before the consent check is deliberate: credit is spent on watching, not
+        // on ORBIS being in a position to interfere.
+        val onCredit = ClearTimeHolder.charge(nowMillis)
+        flushSpend(nowMillis)
+        if (onCredit) {
+            if (OrbisVpnService.isRunning.value) scheduleWatchdog()
+            return
+        }
+
         lastThrottledMillis = nowMillis
         if (!hasConsent(nowMillis)) return
 
@@ -194,6 +214,27 @@ class OrbisAccessibilityService : AccessibilityService() {
     private fun scheduleWatchdog() {
         handler.removeCallbacks(watchdog)
         handler.postDelayed(watchdog, WATCHDOG_INTERVAL_MILLIS)
+    }
+
+    /**
+     * Writes metered clear-time spending back to the ledger, occasionally.
+     *
+     * The gate runs several times a second while a feed is on screen; a row per
+     * tick would be hundreds of writes a minute. Up to [SPEND_FLUSH_MILLIS] of
+     * spending is therefore unbilled if the process dies - which under-charges the
+     * user, the harmless direction to be wrong in.
+     */
+    private fun flushSpend(nowMillis: Long) {
+        if (nowMillis - lastFlushMillis < SPEND_FLUSH_MILLIS) return
+        lastFlushMillis = nowMillis
+
+        scope.launch {
+            runCatching {
+                val repository = EarnRepository.shared(applicationContext)
+                repository.flushSpend()
+                repository.refresh()
+            }
+        }
     }
 
     private fun hasConsent(nowMillis: Long): Boolean {
@@ -352,5 +393,8 @@ class OrbisAccessibilityService : AccessibilityService() {
 
         /** Consent is granted once and then effectively permanent. */
         const val CONSENT_CACHE_MILLIS = 60_000L
+
+        /** How often metered clear-time spending is written back. */
+        const val SPEND_FLUSH_MILLIS = 10_000L
     }
 }
