@@ -44,12 +44,22 @@ data class UsageProfile(
     companion object {
         val EMPTY = UsageProfile(emptyList())
 
-        /** Unknown packages are dropped - ORBIS only reports on apps it targets. */
+        /**
+         * Unknown packages are dropped - ORBIS only reports on apps it targets.
+         *
+         * Variants are summed into their app, so an hour split between YouTube and
+         * Morphe is one hour of YouTube - which is what the throttle should scale
+         * by, and what the user would say they spent.
+         */
         fun from(totalsByPackage: Map<String, Long>): UsageProfile {
-            val entries = totalsByPackage
-                .mapNotNull { (packageName, millis) ->
-                    TargetApp.fromPackage(packageName)?.let { AppUsage(it, millis) }
-                }
+            val summed = LinkedHashMap<TargetApp, Long>()
+            for ((packageName, millis) in totalsByPackage) {
+                val app = TargetApp.fromPackage(packageName) ?: continue
+                summed[app] = (summed[app] ?: 0L) + millis
+            }
+
+            val entries = summed
+                .map { (app, millis) -> AppUsage(app, millis) }
                 // Name is the tie-break purely so ordering is deterministic in tests.
                 .sortedWith(
                     compareByDescending<AppUsage> { it.durationMillis }

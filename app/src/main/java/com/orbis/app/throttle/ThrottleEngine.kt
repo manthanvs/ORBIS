@@ -87,13 +87,15 @@ object ThrottleEngine {
      * YouTube, Snapchat and every routed browser, because a tunnel applies its
      * delay to all the traffic it carries and cannot tell which app it came from.
      *
-     * [activePackage] is only consulted for browsers, where the surface itself
-     * does not name the app.
+     * [activePackage] names the build actually on screen. The surface alone says
+     * "Instagram", but the user may be in InstaPro, and routing the official
+     * package would slow an app that is not even open while the feed plays at
+     * full speed.
      */
     fun routeFor(surface: Surface, activePackage: String?): List<String> = when (surface) {
-        Surface.REELS -> listOf(TargetApp.INSTAGRAM.packageName)
-        Surface.SHORTS -> listOf(TargetApp.YOUTUBE.packageName)
-        Surface.SPOTLIGHT -> listOf(TargetApp.SNAPCHAT.packageName)
+        Surface.REELS -> routeTo(TargetApp.INSTAGRAM, activePackage)
+        Surface.SHORTS -> routeTo(TargetApp.YOUTUBE, activePackage)
+        Surface.SPOTLIGHT -> routeTo(TargetApp.SNAPCHAT, activePackage)
 
         // Never WhatsApp, and never a package that is not a known browser: the
         // detector only reports this surface for BrowserPackages.ALL, and this
@@ -103,6 +105,10 @@ object ThrottleEngine {
 
         Surface.NORMAL -> emptyList()
     }
+
+    /** The on-screen build of [app] if that is what [activePackage] is, else the official one. */
+    private fun routeTo(app: TargetApp, activePackage: String?): List<String> =
+        listOf(activePackage?.takeIf { TargetApp.fromPackage(it) == app } ?: app.packageName)
 
     /** Which app a surface belongs to; browser short-video has no single owner. */
     private fun Surface.owningApp(): TargetApp? = when (this) {

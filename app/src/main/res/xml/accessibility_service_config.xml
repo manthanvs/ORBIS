@@ -6,6 +6,12 @@
     packageNames is the privacy boundary. ORBIS receives events only from the apps
     listed here; nothing else on the device is ever observed. WhatsApp is
     deliberately absent.
+
+    It must list every package in TargetApp.throttleable, variants included, plus
+    BrowserPackages.ALL. A package missing here is invisible to ORBIS however
+    well the rest of the code knows it - which is how Morphe and InstaPro, the
+    user's actual YouTube and Instagram, went undetected. AccessibilityConfigTest
+    fails the build if the two drift apart.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
@@ -14,5 +20,5 @@
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_service_description"
     android:notificationTimeout="200"
-    android:packageNames="com.instagram.android,com.google.android.youtube,com.snapchat.android,com.android.chrome,com.microsoft.emmx,org.mozilla.firefox,com.brave.browser,com.opera.browser,com.sec.android.app.sbrowser,com.duckduckgo.mobile.android"
+    android:packageNames="com.instagram.android,com.instapro2.android,com.google.android.youtube,app.morphe.android.youtube,app.revanced.android.youtube,com.snapchat.android,com.android.chrome,com.microsoft.emmx,org.mozilla.firefox,com.brave.browser,com.opera.browser,com.sec.android.app.sbrowser,com.duckduckgo.mobile.android"
     android:summary="@string/accessibility_service_summary" />

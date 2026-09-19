@@ -81,6 +81,31 @@ class UsageProfileTest {
     }
 
     @Test
+    fun `a modded build's time is summed into its app`() {
+        // An hour split between YouTube and Morphe is an hour of YouTube - that is
+        // what the throttle should scale by, and what the user spent.
+        val profile = UsageProfile.from(
+            mapOf(
+                "com.google.android.youtube" to 10 * 60_000L,
+                "app.morphe.android.youtube" to 50 * 60_000L,
+                "com.instapro2.android" to 30 * 60_000L,
+            )
+        )
+
+        assertEquals(60 * 60_000L, profile.durationOf(TargetApp.YOUTUBE))
+        assertEquals(30 * 60_000L, profile.durationOf(TargetApp.INSTAGRAM))
+        assertEquals(2, profile.entries.size)
+        assertEquals(TargetApp.YOUTUBE, profile.heaviestThrottleable?.app)
+    }
+
+    @Test
+    fun `variants resolve to their app`() {
+        assertEquals(TargetApp.INSTAGRAM, TargetApp.fromPackage("com.instapro2.android"))
+        assertEquals(TargetApp.YOUTUBE, TargetApp.fromPackage("app.morphe.android.youtube"))
+        assertTrue("com.instapro2.android" in TargetApp.packageNames)
+    }
+
+    @Test
     fun `empty input yields an empty profile`() {
         val profile = UsageProfile.from(emptyMap())
 

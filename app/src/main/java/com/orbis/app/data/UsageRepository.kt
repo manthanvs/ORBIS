@@ -78,18 +78,22 @@ class UsageRepository(
                 windowEndMillis = endOfWindow,
             )
 
+            // Built first so the rows are written per app, variants folded in:
+            // InstaPro's time is logged under Instagram, not dropped.
+            val profile = UsageProfile.from(totals)
+
             val date = today.toString()
             dao.upsertAll(
                 TargetApp.entries.map { app ->
                     UsageLog(
                         app = app.packageName,
                         date = date,
-                        durationMillis = totals[app.packageName] ?: 0L,
+                        durationMillis = profile.durationOf(app),
                     )
                 }
             )
 
-            UsageProfile.from(totals)
+            profile
         }
 
         cachedProfile = profile

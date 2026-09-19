@@ -227,6 +227,10 @@ class OrbisVpnService : VpnService() {
         if (route.isEmpty()) {
             status = "nothing to route"
             publishStats()
+            // START_STICKY redelivers a null intent after the process is killed,
+            // which lands here with no route. Staying alive with nothing to do
+            // would leave an idle service the system keeps restarting.
+            if (!active) stopSelf()
             return
         }
 
@@ -1012,7 +1016,7 @@ class OrbisVpnService : VpnService() {
          * WhatsApp is absent, and must stay absent.
          */
         fun routedPackages(): List<String> =
-            TargetApp.throttleable.map { it.packageName } + BrowserPackages.ALL
+            TargetApp.throttleable.flatMap { it.allPackages } + BrowserPackages.ALL
 
         /**
          * @param routePackages the apps this session may carry. Defaults to every

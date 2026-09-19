@@ -143,6 +143,39 @@ class ThrottleEngineTest {
     }
 
     @Test
+    fun `a modded build routes its own package, not the official one`() {
+        // Routing com.instagram.android while the user is in InstaPro would slow an
+        // app that is not even open and leave the feed at full speed.
+        assertEquals(
+            listOf("com.instapro2.android"),
+            ThrottleEngine.routeFor(Surface.REELS, "com.instapro2.android"),
+        )
+        assertEquals(
+            listOf("app.morphe.android.youtube"),
+            ThrottleEngine.routeFor(Surface.SHORTS, "app.morphe.android.youtube"),
+        )
+    }
+
+    @Test
+    fun `a surface never routes another app's variant`() {
+        // Morphe is YouTube, so Morphe on screen can never mean Reels.
+        assertEquals(
+            listOf(TargetApp.INSTAGRAM.packageName),
+            ThrottleEngine.routeFor(Surface.REELS, "app.morphe.android.youtube"),
+        )
+    }
+
+    @Test
+    fun `morphe shorts scale with combined youtube time`() {
+        val heavyMorphe = UsageProfile.from(mapOf("app.morphe.android.youtube" to 60 * 60_000L))
+
+        assertEquals(
+            ThrottleEngine.MAX_DELAY_MILLIS,
+            ThrottleEngine.ruleFor(Surface.SHORTS, heavyMorphe).delayMillis,
+        )
+    }
+
+    @Test
     fun `a normal surface routes nothing at all`() {
         assertTrue(
             ThrottleEngine.routeFor(Surface.NORMAL, TargetApp.INSTAGRAM.packageName).isEmpty()
