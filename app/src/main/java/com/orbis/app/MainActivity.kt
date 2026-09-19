@@ -334,6 +334,13 @@ private fun EarnRoute(modifier: Modifier) {
     val viewModel: EarnViewModel = viewModel(factory = EarnViewModel.factory(context))
     val state by viewModel.state.collectAsStateWithLifecycle()
 
+    // Tells the ViewModel when the user can actually see this screen - see
+    // EarnViewModel.visible for why a finished session must not be claimed unseen.
+    LifecycleResumeEffect(viewModel) {
+        viewModel.onVisibilityChanged(true)
+        onPauseOrDispose { viewModel.onVisibilityChanged(false) }
+    }
+
     EarnScreen(
         state = state,
         onStartFocus = viewModel::startFocus,

@@ -436,6 +436,8 @@ another:
 - **Re-check on resume, never cache.** Access is granted in Settings, outside the app. `MainActivity` uses `LifecycleResumeEffect` for this.
 - **`connectedAndroidTest` reinstalls the APK, which clears app-ops.** Granting with `adb shell appops set ... allow` beforehand therefore does nothing for instrumented tests. The tests grant it themselves via `uiAutomation.executeShellCommand`.
 - Emulators have none of the four target apps installed, so a correct build legitimately shows "nothing tracked". Don't chase that as a bug — verify on a real device.
+- **Pair resumes and pauses per activity, never per package.** Real apps resume two activities at once and pause them out of order (InstaPro's `LauncherActivity` + `PinLockActivity`, Morphe's link trampoline). One session per package closed on the first pause and credited the second "from the window start" — midnight — so the dashboard read *19 h of YouTube* at 19:30, and the throttle sat at maximum all day. An unmatched pause counts from the window start only as a package's *first* event, and no package is credited more than the window.
+- **`dumpsys usagestats` daily totals are not a midnight-to-now reference.** The in-memory "daily" bucket on this phone covered 1:35–7:35 pm. Read its `timeRange` before comparing it with ORBIS, which counts from local midnight.
 
 ## Build phases
 

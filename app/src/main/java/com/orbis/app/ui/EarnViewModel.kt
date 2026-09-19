@@ -52,6 +52,21 @@ class EarnViewModel(
     private val _state = MutableStateFlow(EarnUiState())
     val state: StateFlow<EarnUiState> = _state.asStateFlow()
 
+    /**
+     * Whether the Earn screen is actually on screen.
+     *
+     * A ViewModel outlives its screen: after the user presses Home it keeps
+     * running in the background, and it used to claim a finished session there -
+     * silently, with an in-app message nobody was looking at, beating the
+     * WorkManager job that would have posted a notification. So it only claims
+     * while the user can see it happen.
+     */
+    private val visible = MutableStateFlow(false)
+
+    fun onVisibilityChanged(isVisible: Boolean) {
+        visible.value = isVisible
+    }
+
     init {
         FocusSession.init(appContext)
         viewModelScope.launch { mirrorFocusSession() }
@@ -138,12 +153,14 @@ class EarnViewModel(
 
             while (true) {
                 val now = System.currentTimeMillis()
-                if (session.completeAt(now)) {
+                if (session.completeAt(now) && visible.value) {
                     // Launched separately: claiming clears the session, which emits,
                     // which cancels this block - and with it any payout still in flight.
                     viewModelScope.launch { claimFocus(now) }
                     return@collectLatest
                 }
+                // Done but unseen: leave it to FocusSessionWorker, which notifies.
+                // Showing zero until then is honest - the time is up.
                 _state.update { it.copy(focusRemainingMillis = session.remainingMillis(now)) }
                 delay(TICK_MILLIS)
             }
