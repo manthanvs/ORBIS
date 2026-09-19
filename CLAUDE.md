@@ -236,6 +236,20 @@ tunnel must drop. `scheduleWatchdog()` keeps a teardown check pending for as lon
 as the tunnel is up, and `onDestroy` stops the tunnel outright: with detection
 gone, nothing else would ever take it down.
 
+**The watchdog re-reads the screen before it decides.** A video playing steadily
+sends *no* accessibility events. Measured on CPH2585: a YouTube Short left
+playing lost its throttle ~9 s in, because the last event aged past the grace
+period with the Short still on screen. So `watchdog.run()` calls `evaluate()`
+first. It keeps running while the tunnel is up *or* a feed was seen within the
+grace period — the latter is what meters clear time through a long video. It is
+keyed on `lastFeedSeenMillis`, not `SurfaceMonitor`, because an unreadable
+screen leaves the monitor stale and the loop would never end.
+
+**Screen-off stands everything down.** Locking the phone on Reels leaves Reels as
+the foreground surface, so without the `ACTION_SCREEN_OFF` receiver the tunnel
+stayed up all night, dropping the app's TCP. The unlock's own window events
+raise it again within a second.
+
 ### One repository, one query
 
 `UsageRepository.shared(context)` is process-wide and caches today's profile for
@@ -278,6 +292,41 @@ Other measured facts:
 - `uiautomator dump` fails with `could not get idle state` while a video plays. That is a limitation of the *tool*, not of an AccessibilityService, which receives pushed events and can call `getRootInActiveWindow()` at any time. Pause playback to capture.
 - Instagram/YouTube class and fragment names are obfuscated by R8; only **resource IDs** and **content-descriptions** are usable.
 - These IDs are unversioned app internals and will break when the apps redesign. Re-run this survey when detection stops firing.
+
+### Modded clients are the real apps on real phones
+
+On the test phone the user's Instagram was **InstaPro** (`com.instapro2.android`,
+28 h in a month) and their YouTube was **Morphe** (`app.morphe.android.youtube`,
+6 h 47 m in a week). The official apps were barely opened, so an ORBIS that knew
+only official package names did almost nothing. Both carry the official view ids
+**under their own package name** — `app.morphe.android.youtube:id/reel_watch_player`
+— so they are `TargetApp.variants`, qualified with their own package everywhere.
+
+To check a new one before adding it, pull the APK and read its resource table:
+
+```bash
+adb pull $(adb shell pm path <pkg> | grep base | cut -d: -f2) v.apk
+aapt2 dump resources v.apk | grep -E "^Package name|id/(clips_viewer_view_pager|reel_watch_player)"
+```
+
+Find which build a user actually uses from `dumpsys usagestats` weekly totals,
+not from `pm list packages` — see the hidden-app note below.
+
+**ColorOS "hidden apps" are invisible to `pm list packages`** (`hidden=true` in
+`dumpsys package`) and cannot be launched by `monkey`/`am start`, but everything
+ORBIS needs still works for them, measured: usage stats record them,
+accessibility events arrive, and `addAllowedApplication` routes them — InstaPro's
+appId 10423 appeared in the tunnel's `Uids:`. Testing one needs the user to open
+it by hand.
+
+The `Uids:` set shows each routed app twice, e.g. `10460-10460, 20460-20460`: the
+second is the app's **SDK sandbox** (appId + 10000), which Android routes with it.
+That is still one app.
+
+The tunnel's network has **no DNS servers** (`DnsAddresses: [ ]`) and the phone
+runs **strict Private DNS** (DNS-over-TLS, i.e. TCP, which the relay drops). It
+works anyway — new reels and Shorts, ads included, loaded under the tunnel —
+but it is the first place to look if a routed app ever fails to resolve.
 
 ## Target architecture
 
@@ -354,7 +403,32 @@ another:
 - **This app's own logcat tags are dropped.** `Log.i(TAG, …)` from `OrbisVpn`
   and `OrbisSurface` mostly never appears, which is exactly why the packet
   counters are surfaced on the Controls screen instead. Verify the tunnel from
-  `ip addr show tun0` and `dumpsys connectivity`, not from logcat.
+  `dumpsys connectivity` (`grep "InterfaceName: tun0"`, then its `Uids:`), not
+  from logcat. `ip link show tun0` returns nothing to the shell user here.
+
+- **Do not run `connectedAndroidTest` on a phone someone uses.** It uninstalls
+  ORBIS afterwards, taking the database and every permission grant with it.
+  Compile the source set instead: `./gradlew compileDebugAndroidTestKotlin`.
+
+- **`install -r` keeps everything**: usage access, VPN consent, the enabled
+  accessibility service and the database all survived updates in testing.
+  `allowBackup=true` also means a *fresh* install restores the last Google
+  backup — the first install on this phone came up with rows from July.
+
+- **A deep link straight to ORBIS's accessibility page is impossible.**
+  `ACTION_ACCESSIBILITY_DETAILS_SETTINGS` needs
+  `OPEN_ACCESSIBILITY_DETAILS_SETTINGS`, which is signature-only. ColorOS files
+  the service under *Accessibility → Downloaded apps*, and the onboarding copy
+  says so.
+
+- **ColorOS switches on a floating accessibility shortcut button** for ORBIS
+  when the service is enabled (`accessibility_button_targets`), although the
+  config never requests one. It is the user's setting to turn off, under the
+  service's own page.
+
+- **Swiping ORBIS from recents does not kill it**: the bound accessibility
+  service keeps the process alive, `stopped=false`, and a running focus session
+  survives.
 
 ### Usage-access gotchas (learned the hard way)
 

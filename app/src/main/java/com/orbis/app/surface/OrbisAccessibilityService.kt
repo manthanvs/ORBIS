@@ -1,6 +1,10 @@
 package com.orbis.app.surface
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -9,6 +13,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.content.ContextCompat
 import com.orbis.app.data.UsageRepository
 import com.orbis.app.earn.ClearTimeHolder
 import com.orbis.app.earn.EarnRepository
@@ -108,8 +113,41 @@ class OrbisAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Stands everything down when the screen goes off.
+     *
+     * Locking the phone with Reels open leaves Reels as the foreground surface, so
+     * nothing else would ever end the session: the tunnel stayed up all night,
+     * dropping the app's TCP - its background sync included - and the watchdog
+     * kept re-reading a screen nobody could see. Nobody watches a feed with the
+     * screen off. When it comes back on, the unlock's own window events raise the
+     * tunnel again within a second if the feed is still there.
+     */
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != Intent.ACTION_SCREEN_OFF) return
+            handler.removeCallbacks(watchdog)
+            handler.removeCallbacks(trailingEvaluation)
+            lastFeedSeenMillis = 0L
+            lastThrottledMillis = 0L
+            lastFlushMillis = 0L
+            // Credit spent up to the lock is written back now rather than waiting
+            // for a flush that, with the screen off, may not come for hours.
+            flushSpend(SystemClock.uptimeMillis())
+            if (OrbisVpnService.isRunning.value) OrbisVpnService.stop(this@OrbisAccessibilityService)
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        // A system broadcast: delivered to a non-exported receiver, and it cannot
+        // be declared in the manifest at all.
+        ContextCompat.registerReceiver(
+            this,
+            screenOff,
+            IntentFilter(Intent.ACTION_SCREEN_OFF),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         Log.i(TAG, "connected; observing=" + (serviceInfo?.packageNames?.joinToString() ?: "ALL"))
         ThrottleSettings.init(applicationContext)
         FocusSession.init(applicationContext)
@@ -313,6 +351,7 @@ class OrbisAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        runCatching { unregisterReceiver(screenOff) }
         handler.removeCallbacks(watchdog)
         handler.removeCallbacks(trailingEvaluation)
         // Detection is what gates the tunnel. With it gone nothing would ever take

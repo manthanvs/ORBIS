@@ -5,7 +5,12 @@ import com.orbis.app.data.ClearTimeDao
 import com.orbis.app.data.ClearTimeEntry
 import com.orbis.app.data.DatabaseProvider
 import com.orbis.app.deed.GoodDeedStreak
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.time.LocalDate
@@ -34,8 +39,24 @@ class EarnRepository(
 
     private fun today(): LocalDate = LocalDate.now(clock)
 
+    /**
+     * Today's ledger, following the date as it changes.
+     *
+     * Binding the query to the date it was first collected on meant a screen left
+     * open past midnight went on showing yesterday's clear time - credit that had
+     * already expired, on a day that had already ended.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun observeToday(): Flow<List<ClearTimeMovement>> =
-        dao.observeForDate(today().toString()).map { entries -> entries.map(::toMovement) }
+        flow {
+            while (true) {
+                emit(today())
+                delay(DATE_CHECK_MILLIS)
+            }
+        }
+            .distinctUntilChanged()
+            .flatMapLatest { date -> dao.observeForDate(date.toString()) }
+            .map { entries -> entries.map(::toMovement) }
 
     /**
      * Credits [action] and returns what it actually paid.
@@ -121,6 +142,9 @@ class EarnRepository(
     companion object {
         /** Matches `usage_log`'s retention; the ledger is no more precious. */
         const val RETENTION_DAYS = 60L
+
+        /** How often [observeToday] checks whether the day has turned over. */
+        private const val DATE_CHECK_MILLIS = 60_000L
 
         @Volatile
         private var shared: EarnRepository? = null
