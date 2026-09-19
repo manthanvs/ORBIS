@@ -105,23 +105,51 @@ private fun OrbisApp(openOnDeeds: Boolean) {
     }
 
     // VpnService.prepare() returns an Intent the first time; consent is a system
-    // dialog and cannot be granted any other way.
+    // dialog and cannot be granted any other way. What to do once it is granted
+    // is carried across the dialog in these two flags.
     var startAfterConsent by remember { mutableStateOf(false) }
+    var enableAfterConsent by remember { mutableStateOf(false) }
     val consentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && startAfterConsent) {
-            startTunnelTest(context)
+        if (result.resultCode == Activity.RESULT_OK) {
+            if (startAfterConsent) startTunnelTest(context)
+            if (enableAfterConsent) ThrottleSettings.setEnabled(true)
         }
+        // A denial leaves auto-slowing off. Switching it on regardless is what
+        // produced "You are all set" on a phone where nothing could be slowed.
         startAfterConsent = false
+        enableAfterConsent = false
     }
 
-    // Both special permissions are granted over in Settings, so returning to the
-    // foreground is the only reliable moment to re-check them.
+    /**
+     * The one way to switch auto-slowing on, from any screen.
+     *
+     * The home screen's "Turn it on" used to set the flag directly and never ask
+     * for VPN consent - so onboarding finished, the screen said "You are all set",
+     * and ORBIS could not slow a single thing. Now consent comes first, and the
+     * setting only flips once Android has actually granted it.
+     */
+    val turnOnAutoThrottle: () -> Unit = {
+        val consent = VpnService.prepare(context)
+        if (consent == null) {
+            ThrottleSettings.setEnabled(true)
+        } else {
+            startAfterConsent = false
+            enableAfterConsent = true
+            consentLauncher.launch(consent)
+        }
+    }
+
+    // The special permissions are granted over in Settings or in system dialogs,
+    // so returning to the foreground is the only reliable moment to re-check them.
     LifecycleResumeEffect(Unit) {
         homeViewModel.onPermissionsChanged(
             hasUsageAccess = UsageAccess.isGranted(context),
             hasDetection = AccessibilityAccess.isEnabled(context),
+            // Re-read every time, never cached: another VPN app taking over
+            // revokes it without ORBIS being told.
+            hasVpnConsent = VpnService.prepare(context) == null,
         )
         onPauseOrDispose { }
     }
@@ -157,6 +185,7 @@ private fun OrbisApp(openOnDeeds: Boolean) {
                 viewModel = homeViewModel,
                 protection = protection,
                 simpleMode = simpleMode,
+                onEnableThrottle = turnOnAutoThrottle,
                 onOpenDeeds = { destination = Destination.EARN },
                 onOpenAbout = { destination = Destination.ABOUT },
                 onSimpleModeChange = UiSettings::setSimpleMode,
@@ -183,18 +212,14 @@ private fun OrbisApp(openOnDeeds: Boolean) {
                     }
                 },
                 onAutoThrottleChange = { wanted ->
-                    // Consent must exist before the service can gate itself on, so
-                    // ask at the moment the user opts in - but do not start the
-                    // tunnel here. The accessibility gate raises it when a
-                    // short-form feed actually appears.
+                    // Never starts the tunnel here: the accessibility gate raises it
+                    // when a short-form feed actually appears.
                     if (wanted) {
-                        VpnService.prepare(context)?.let { consent ->
-                            startAfterConsent = false
-                            consentLauncher.launch(consent)
-                        }
+                        turnOnAutoThrottle()
+                    } else {
+                        ThrottleSettings.setEnabled(false)
+                        if (protection.tunnelRunning) OrbisVpnService.stop(context)
                     }
-                    ThrottleSettings.setEnabled(wanted)
-                    if (!wanted && protection.tunnelRunning) OrbisVpnService.stop(context)
                 },
                 modifier = contentModifier,
             )
@@ -237,6 +262,7 @@ private fun HomeRoute(
     viewModel: HomeViewModel,
     protection: ProtectionUiState,
     simpleMode: Boolean,
+    onEnableThrottle: () -> Unit,
     onOpenDeeds: () -> Unit,
     onOpenAbout: () -> Unit,
     onSimpleModeChange: (Boolean) -> Unit,
@@ -247,7 +273,7 @@ private fun HomeRoute(
 
     val grantUsageAccess = { context.startActivity(UsageAccess.settingsIntent()) }
     val enableDetection = { context.startActivity(AccessibilityAccess.settingsIntent()) }
-    val enableThrottle = { ThrottleSettings.setEnabled(true) }
+    val enableThrottle = onEnableThrottle
 
     if (simpleMode) {
         SimpleHomeScreen(
@@ -295,7 +321,7 @@ private fun AboutRoute(protection: ProtectionUiState, modifier: Modifier) {
         versionName = versionName,
         hasUsageAccess = protection.hasUsageAccess,
         hasDetection = protection.hasDetection,
-        autoThrottle = protection.autoThrottle,
+        autoThrottle = protection.autoThrottle && protection.canSlow,
         onGrantUsageAccess = { context.startActivity(UsageAccess.settingsIntent()) },
         onEnableDetection = { context.startActivity(AccessibilityAccess.settingsIntent()) },
         modifier = modifier,

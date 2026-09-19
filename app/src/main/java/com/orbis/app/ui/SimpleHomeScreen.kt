@@ -107,10 +107,11 @@ fun SimpleHomeScreen(
         HowItWorksCard()
         SlowedOrNotCard()
 
-        SimpleStreakCard(
+        SimpleEarnCard(
             streak = state.streak,
-            doneToday = state.deedDoneToday,
-            onOpenDeeds = onOpenDeeds,
+            earnedToday = state.earnedToday,
+            clearTimeMillis = state.clearTimeMillis,
+            onOpenEarn = onOpenDeeds,
         )
 
         OutlinedButton(onClick = onOpenAbout, modifier = Modifier.fillMaxWidth()) {
@@ -321,7 +322,9 @@ private fun ProtectionUiState.toSimpleStatus(
     !hasDetection -> SimpleStatus(
         headline = "Let ORBIS tell your screens apart",
         body = "This is how ORBIS knows Reels from a DM, so it slows the endless " +
-            "scroll and never your conversations. Nothing it reads leaves your phone.",
+            "scroll and never your conversations. Nothing it reads leaves your phone. " +
+            "In the list that opens, look under Downloaded apps or Installed apps " +
+            "for ORBIS surface detection.",
         tone = SimpleTone.SETUP,
         stepLabel = "Step 2 of 3",
         buttonLabel = "Open Settings",
@@ -332,10 +335,25 @@ private fun ProtectionUiState.toSimpleStatus(
         headline = "One switch to go",
         body = "Turn this on and Reels, Shorts and Spotlight will load a little " +
             "slower — just enough to notice. Everything else stays exactly as " +
-            "fast as it is now.",
+            "fast as it is now. Android will ask whether ORBIS may set up a VPN: " +
+            "that is how it adds the drag, and it never leaves your phone.",
         tone = SimpleTone.SETUP,
         stepLabel = "Step 3 of 3",
         buttonLabel = "Turn it on",
+        action = onEnableThrottle,
+    )
+
+    // On, but Android no longer lets it act - usually because another VPN app
+    // was switched on since, which quietly takes the slot. Saying "all set"
+    // here would be the one lie this screen must never tell.
+    !canSlow -> SimpleStatus(
+        headline = "ORBIS needs its VPN back",
+        body = "Android only lets one app use a VPN at a time, and ORBIS has lost " +
+            "its turn — often because another VPN app was switched on. Until you " +
+            "allow it again, nothing is being slowed.",
+        tone = SimpleTone.SETUP,
+        stepLabel = null,
+        buttonLabel = "Allow again",
         action = onEnableThrottle,
     )
 
@@ -405,7 +423,10 @@ private fun TimeBackCard(summary: ReclaimedSummary?, loading: Boolean) {
                     )
                     summary?.todayMillis?.takeIf { it > 0L }?.let { today ->
                         Text(
-                            text = "Short videos today: ${DurationFormatter.format(today)}",
+                            // The whole app, DMs included - ORBIS measures time in
+                            // Instagram, not time in Reels, so it must not claim to.
+                            text = "Instagram, YouTube and Snapchat today: " +
+                                DurationFormatter.format(today),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -562,8 +583,9 @@ private fun HowItWorksCard() {
                 number = 4,
                 title = "It hands the time back to you",
                 body = "The minutes you did not spend scrolling show up on this " +
-                    "screen, and once a day ORBIS nudges you to go do one small " +
-                    "kind thing instead.",
+                    "screen. And you can buy a feed back to full speed: a focus " +
+                    "session or a good deed earns clear time, and clear time turns " +
+                    "the drag off until it is spent.",
             )
         }
     }
@@ -679,8 +701,17 @@ private fun ListBlock(heading: String, items: List<String>, accent: Color) {
 
 // -------------------------------------------------------------------- streak
 
+/**
+ * The side quest, as the home screen shows it: what clear time is left, and
+ * the way to earn more.
+ */
 @Composable
-private fun SimpleStreakCard(streak: Int, doneToday: Boolean, onOpenDeeds: () -> Unit) {
+private fun SimpleEarnCard(
+    streak: Int,
+    earnedToday: Boolean,
+    clearTimeMillis: Long,
+    onOpenEarn: () -> Unit,
+) {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -695,24 +726,27 @@ private fun SimpleStreakCard(streak: Int, doneToday: Boolean, onOpenDeeds: () ->
         ) {
             Text(
                 text = when {
-                    streak <= 0 -> "Do one good thing today"
-                    streak == 1 -> "1 day in a row"
-                    else -> "$streak days in a row"
+                    clearTimeMillis > 0L ->
+                        "${DurationFormatter.format(clearTimeMillis)} of clear time left"
+                    streak <= 0 -> "Earn some clear time"
+                    streak == 1 -> "1 day of earning"
+                    else -> "$streak days of earning in a row"
                 },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = if (doneToday) {
-                    "Today's good deed is logged. Streak safe."
-                } else {
-                    "Anything counts — help out at home, text a friend having a " +
-                        "rough day, pick up some litter. Snap a photo and it is logged."
+                text = when {
+                    clearTimeMillis > 0L ->
+                        "Your feeds run at full speed until it is spent. It resets tonight."
+                    earnedToday -> "Earned and spent today. Streak safe."
+                    else -> "Fifteen minutes without a feed, or one small kind thing, " +
+                        "buys your feeds back to full speed for a while."
                 },
                 style = MaterialTheme.typography.bodyLarge,
             )
-            FilledTonalButton(onClick = onOpenDeeds, modifier = Modifier.fillMaxWidth()) {
-                Text(if (doneToday) "See my deeds" else "Log a good deed")
+            FilledTonalButton(onClick = onOpenEarn, modifier = Modifier.fillMaxWidth()) {
+                Text(if (earnedToday) "Earn more" else "Start earning")
             }
         }
     }

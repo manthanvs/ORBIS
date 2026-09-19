@@ -153,8 +153,9 @@ fun HomeScreen(
 
         StreakTeaser(
             streak = state.streak,
-            doneToday = state.deedDoneToday,
-            onOpenDeeds = onOpenDeeds,
+            earnedToday = state.earnedToday,
+            clearTimeMillis = state.clearTimeMillis,
+            onOpenEarn = onOpenDeeds,
         )
 
         Spacer(Modifier.height(8.dp))
@@ -266,7 +267,8 @@ private fun ProtectionUiState.toStatus(): ProtectionStatus = when {
     !hasDetection -> ProtectionStatus(
         headline = "Detection is off",
         detail = "Turn on surface detection so ORBIS can tell Reels from Stories. " +
-            "It only ever reads the apps ORBIS targets, and nothing leaves your phone.",
+            "It only ever reads the apps ORBIS targets, and nothing leaves your phone. " +
+            "Look under Downloaded apps or Installed apps in the list that opens.",
         tone = Tone.SETUP,
         action = Action.DETECTION,
     )
@@ -274,7 +276,16 @@ private fun ProtectionUiState.toStatus(): ProtectionStatus = when {
     !autoThrottle -> ProtectionStatus(
         headline = "Ready when you are",
         detail = "Everything's set up. Switch on auto-slowing and ORBIS will add a " +
-            "little friction to Reels, Shorts and Spotlight — and nothing else.",
+            "little friction to Reels, Shorts and Spotlight — and nothing else. " +
+            "Android will ask to allow a VPN; it stays on your phone.",
+        tone = Tone.SETUP,
+        action = Action.THROTTLE,
+    )
+
+    !canSlow -> ProtectionStatus(
+        headline = "VPN permission was lost",
+        detail = "Android lets one app use a VPN at a time, and another one has " +
+            "taken ORBIS's turn. Nothing is being slowed until you allow it again.",
         tone = Tone.SETUP,
         action = Action.THROTTLE,
     )
@@ -699,7 +710,12 @@ private fun ProtectedBadge() {
 // -------------------------------------------------------------------- streak
 
 @Composable
-private fun StreakTeaser(streak: Int, doneToday: Boolean, onOpenDeeds: () -> Unit) {
+private fun StreakTeaser(
+    streak: Int,
+    earnedToday: Boolean,
+    clearTimeMillis: Long,
+    onOpenEarn: () -> Unit,
+) {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -716,18 +732,20 @@ private fun StreakTeaser(streak: Int, doneToday: Boolean, onOpenDeeds: () -> Uni
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = when {
-                        streak <= 0 -> "Start a streak"
-                        streak == 1 -> "1 day of good deeds"
-                        else -> "$streak days of good deeds"
+                        clearTimeMillis > 0L ->
+                            "${DurationFormatter.format(clearTimeMillis)} clear time left"
+                        streak <= 0 -> "Earn some clear time"
+                        streak == 1 -> "1 day of earning"
+                        else -> "$streak days of earning"
                     },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = if (doneToday) {
-                        "Today's is logged."
+                    text = if (earnedToday) {
+                        "Earned today. Streak safe."
                     } else {
-                        "One small kind thing today keeps it going."
+                        "A focus session or a good deed keeps it going."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -735,12 +753,12 @@ private fun StreakTeaser(streak: Int, doneToday: Boolean, onOpenDeeds: () -> Uni
             // TextButton defaults to `primary` and ignores the Card's
             // contentColor, which puts a teal label on the amber card.
             TextButton(
-                onClick = onOpenDeeds,
+                onClick = onOpenEarn,
                 colors = ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                 ),
             ) {
-                Text(if (doneToday) "View" else "Log it")
+                Text(if (earnedToday) "More" else "Earn")
             }
         }
     }

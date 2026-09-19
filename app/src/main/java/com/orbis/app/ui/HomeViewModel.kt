@@ -8,9 +8,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.orbis.app.dashboard.ReclaimedSummary
 import com.orbis.app.dashboard.ReclaimedTime
-import com.orbis.app.data.DatabaseProvider
 import com.orbis.app.data.UsageRepository
-import com.orbis.app.deed.GoodDeedRepository
+import com.orbis.app.earn.ClearTimeHolder
+import com.orbis.app.earn.EarnRepository
 import com.orbis.app.surface.DetectedSurface
 import com.orbis.app.surface.SurfaceMonitor
 import com.orbis.app.throttle.ThrottleSettings
@@ -37,18 +37,33 @@ import java.time.LocalDate
 data class ProtectionUiState(
     val hasUsageAccess: Boolean = false,
     val hasDetection: Boolean = false,
+    /**
+     * Whether Android currently lets ORBIS run its VPN.
+     *
+     * Tracked separately from [autoThrottle] because the two drift apart: the
+     * home screen's "Turn it on" used to flip the setting without ever asking,
+     * and another VPN app taking over silently revokes it later. Either way the
+     * screen said "You are all set" while nothing could be slowed.
+     */
+    val hasVpnConsent: Boolean = false,
     val autoThrottle: Boolean = false,
     val tunnelRunning: Boolean = false,
     val detected: DetectedSurface = DetectedSurface(),
     val delayMillis: Long = 0L,
-)
+) {
+    /** A running tunnel is proof of consent, whatever the last check said. */
+    val canSlow: Boolean get() = hasVpnConsent || tunnelRunning
+}
 
 data class HomeUiState(
     val loading: Boolean = true,
     val summary: ReclaimedSummary? = null,
     val profile: UsageProfile = UsageProfile.EMPTY,
+    /** Consecutive days on which clear time was earned. */
     val streak: Int = 0,
-    val deedDoneToday: Boolean = false,
+    val earnedToday: Boolean = false,
+    /** Clear time left today, live. */
+    val clearTimeMillis: Long = 0L,
     val error: String? = null,
 )
 
@@ -62,7 +77,7 @@ data class HomeUiState(
  */
 class HomeViewModel(
     private val usage: UsageRepository,
-    private val deeds: GoodDeedRepository,
+    private val earn: EarnRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -99,19 +114,40 @@ class HomeViewModel(
     )
 
     init {
+        // The streak is the earn loop's now - days on which clear time was earned,
+        // which includes a good deed but is no longer only one.
         viewModelScope.launch {
-            deeds.observeAll().collect { entries ->
-                val summary = deeds.summarize(entries)
+            earn.observeToday().collect { movements ->
+                val summary = earn.summarize(movements)
                 _state.update {
-                    it.copy(streak = summary.streak, deedDoneToday = summary.doneToday)
+                    it.copy(
+                        streak = summary.streak,
+                        earnedToday = summary.balance.earnedMillis > 0L,
+                    )
                 }
             }
         }
+        viewModelScope.launch {
+            ClearTimeHolder.remainingMillis.collect { remaining ->
+                _state.update { it.copy(clearTimeMillis = remaining) }
+            }
+        }
+        viewModelScope.launch { runCatching { earn.refresh() } }
     }
 
     /** Permissions are granted outside the app, so they are pushed in on resume. */
-    fun onPermissionsChanged(hasUsageAccess: Boolean, hasDetection: Boolean) {
-        _access.update { it.copy(hasUsageAccess = hasUsageAccess, hasDetection = hasDetection) }
+    fun onPermissionsChanged(
+        hasUsageAccess: Boolean,
+        hasDetection: Boolean,
+        hasVpnConsent: Boolean,
+    ) {
+        _access.update {
+            it.copy(
+                hasUsageAccess = hasUsageAccess,
+                hasDetection = hasDetection,
+                hasVpnConsent = hasVpnConsent,
+            )
+        }
         if (hasUsageAccess) refresh()
     }
 
@@ -161,9 +197,7 @@ class HomeViewModel(
                 initializer {
                     HomeViewModel(
                         usage = UsageRepository.shared(appContext),
-                        deeds = GoodDeedRepository(
-                            DatabaseProvider.get(appContext).goodDeedDao()
-                        ),
+                        earn = EarnRepository.shared(appContext),
                     )
                 }
             }

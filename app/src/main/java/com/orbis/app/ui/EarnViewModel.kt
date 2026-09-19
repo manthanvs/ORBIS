@@ -12,14 +12,17 @@ import com.orbis.app.earn.ClearTimeBalance
 import com.orbis.app.earn.ClearTimeHolder
 import com.orbis.app.earn.EarnAction
 import com.orbis.app.earn.EarnRepository
-import com.orbis.app.surface.SurfaceMonitor
-import kotlinx.coroutines.Job
+import com.orbis.app.earn.FocusSession
+import com.orbis.app.earn.FocusSessionWorker
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class EarnUiState(
     val balance: ClearTimeBalance = ClearTimeBalance.EMPTY,
@@ -41,6 +44,7 @@ data class EarnUiState(
  * survives as the highest-paying action rather than being the whole feature.
  */
 class EarnViewModel(
+    private val appContext: Context,
     private val earn: EarnRepository,
     private val deeds: GoodDeedRepository,
 ) : ViewModel() {
@@ -48,9 +52,10 @@ class EarnViewModel(
     private val _state = MutableStateFlow(EarnUiState())
     val state: StateFlow<EarnUiState> = _state.asStateFlow()
 
-    private var focusJob: Job? = null
-
     init {
+        FocusSession.init(appContext)
+        viewModelScope.launch { mirrorFocusSession() }
+
         viewModelScope.launch {
             earn.observeToday().collect { movements ->
                 val summary = earn.summarize(movements)
@@ -85,54 +90,84 @@ class EarnViewModel(
      * The verification is free: ORBIS already knows when a short-form feed is on
      * screen, so opening one ends the session. That is the whole mechanic - the
      * session is not a promise, it is a measurement.
+     *
+     * The session itself lives in [FocusSession], not here, so that locking the
+     * phone or swiping ORBIS away - the natural thing to do when focusing - does
+     * not quietly cancel it. This screen only displays it.
      */
     fun startFocus() {
-        if (focusJob?.isActive == true) return
+        if (FocusSession.state.value.active) return
         if (_state.value.remainingUses[EarnAction.FOCUS_SESSION] == 0) {
             _state.update { it.copy(message = "No focus sessions left today.") }
             return
         }
 
-        focusJob = viewModelScope.launch {
-            var remaining = EarnAction.FOCUS_DURATION_MILLIS
-            _state.update { it.copy(focusRemainingMillis = remaining, message = null) }
+        FocusSession.start(appContext, System.currentTimeMillis())
+        FocusSessionWorker.schedule(appContext, EarnAction.FOCUS_DURATION_MILLIS)
+        _state.update { it.copy(message = null) }
+    }
 
-            while (remaining > 0L) {
-                delay(TICK_MILLIS)
+    fun cancelFocus() {
+        FocusSession.clear(appContext)
+        FocusSessionWorker.cancel(appContext)
+    }
 
-                if (SurfaceMonitor.state.value.surface.throttled) {
-                    _state.update {
-                        it.copy(
-                            focusRemainingMillis = null,
-                            message = "Session ended - a short-form feed opened. " +
-                                "No hard feelings, start another whenever.",
-                        )
-                    }
-                    return@launch
-                }
-
-                remaining -= TICK_MILLIS
-                _state.update { it.copy(focusRemainingMillis = remaining.coerceAtLeast(0L)) }
+    /**
+     * Shows the running session, once a second, and claims it the moment it is
+     * done if the user is here to see that happen.
+     */
+    private suspend fun mirrorFocusSession() {
+        FocusSession.state.collectLatest { session ->
+            if (!session.active) {
+                _state.update { it.copy(focusRemainingMillis = null) }
+                return@collectLatest
             }
 
-            val awarded = earn.award(EarnAction.FOCUS_SESSION)
-            _state.update {
-                it.copy(
-                    focusRemainingMillis = null,
-                    message = if (awarded > 0L) {
-                        "Nice. ${awarded / 60_000L} clear minutes added."
-                    } else {
-                        "Session done - you are already at today's ceiling."
-                    },
-                )
+            if (session.broken) {
+                FocusSession.clear(appContext)
+                FocusSessionWorker.cancel(appContext)
+                _state.update {
+                    it.copy(
+                        focusRemainingMillis = null,
+                        message = "Session ended - a short-form feed opened. " +
+                            "No hard feelings, start another whenever.",
+                    )
+                }
+                return@collectLatest
+            }
+
+            while (true) {
+                val now = System.currentTimeMillis()
+                if (session.completeAt(now)) {
+                    // Launched separately: claiming clears the session, which emits,
+                    // which cancels this block - and with it any payout still in flight.
+                    viewModelScope.launch { claimFocus(now) }
+                    return@collectLatest
+                }
+                _state.update { it.copy(focusRemainingMillis = session.remainingMillis(now)) }
+                delay(TICK_MILLIS)
             }
         }
     }
 
-    fun cancelFocus() {
-        focusJob?.cancel()
-        focusJob = null
-        _state.update { it.copy(focusRemainingMillis = null) }
+    private suspend fun claimFocus(nowMillis: Long) {
+        if (!FocusSession.claimIfComplete(appContext, nowMillis)) return
+        FocusSessionWorker.cancel(appContext)
+
+        // The session is already cleared, so a cancelled award here would lose the
+        // reward for good. It must finish whatever happens to this screen.
+        val awarded = withContext(NonCancellable) {
+            runCatching { earn.award(EarnAction.FOCUS_SESSION) }.getOrDefault(0L)
+        }
+        _state.update {
+            it.copy(
+                message = if (awarded > 0L) {
+                    "Nice. ${awarded / 60_000L} clear minutes added."
+                } else {
+                    "Session done - you are already at today's ceiling."
+                },
+            )
+        }
     }
 
     // ------------------------------------------------------------------ good deed
@@ -182,11 +217,6 @@ class EarnViewModel(
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
-    override fun onCleared() {
-        focusJob?.cancel()
-        super.onCleared()
-    }
-
     companion object {
         private const val TICK_MILLIS = 1_000L
 
@@ -195,6 +225,7 @@ class EarnViewModel(
             return viewModelFactory {
                 initializer {
                     EarnViewModel(
+                        appContext = applicationContext,
                         earn = EarnRepository.shared(applicationContext),
                         deeds = GoodDeedRepository(
                             DatabaseProvider.get(applicationContext).goodDeedDao()

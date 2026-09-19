@@ -76,7 +76,9 @@ fun ControlsScreen(
         SectionTitle("Tunnel")
         TunnelCard(
             tunnel = tunnel,
-            autoThrottle = protection.autoThrottle,
+            // Off when Android has withdrawn the VPN, so the switch never claims a
+            // state ORBIS cannot act on - and tapping it asks for consent again.
+            autoThrottle = protection.autoThrottle && protection.canSlow,
             onToggle = onToggleTunnel,
             onAutoThrottleChange = onAutoThrottleChange,
         )

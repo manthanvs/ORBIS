@@ -304,8 +304,9 @@ private fun FocusRunningCard(remainingMillis: Long, onCancel: () -> Unit) {
             )
 
             Text(
-                text = "Opening Reels, Shorts or Spotlight ends the session. " +
-                    "Everything else on your phone is fair game.",
+                text = "Put the phone down, or use any other app - it keeps " +
+                    "counting, and ORBIS will tell you when it is done. Only " +
+                    "opening Reels, Shorts or Spotlight ends it.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

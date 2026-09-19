@@ -42,11 +42,13 @@ class HomeScreenTest {
 
     private fun granted(
         autoThrottle: Boolean = true,
+        hasVpnConsent: Boolean = true,
         tunnelRunning: Boolean = false,
         detected: DetectedSurface = DetectedSurface(),
     ) = ProtectionUiState(
         hasUsageAccess = true,
         hasDetection = true,
+        hasVpnConsent = hasVpnConsent,
         autoThrottle = autoThrottle,
         tunnelRunning = tunnelRunning,
         detected = detected,
@@ -163,5 +165,19 @@ class HomeScreenTest {
 
         compose.onNodeWithText("Ready when you are").assertIsDisplayed()
         compose.onNodeWithText("Turn on auto-slowing").assertIsDisplayed()
+    }
+
+    @Test
+    fun switchedOnWithoutVpnConsentNeverClaimsToBeWorking() {
+        // Measured on device: onboarding set the flag without ever asking for VPN
+        // consent, and the card said all was well while nothing could be slowed.
+        show(
+            state = HomeUiState(loading = false, summary = summary(days = 7)),
+            protection = granted(autoThrottle = true, hasVpnConsent = false),
+        )
+
+        compose.onNodeWithText("VPN permission was lost").assertIsDisplayed()
+        compose.onNodeWithText("Turn on auto-slowing").assertIsDisplayed()
+        compose.onNodeWithText("Watching").assertDoesNotExist()
     }
 }
