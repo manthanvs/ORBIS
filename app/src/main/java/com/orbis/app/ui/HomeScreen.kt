@@ -276,7 +276,7 @@ private fun ProtectionUiState.toStatus(): ProtectionStatus = when {
     !autoThrottle -> ProtectionStatus(
         headline = "Ready when you are",
         detail = "Everything's set up. Switch on auto-slowing and ORBIS will add a " +
-            "little friction to Reels, Shorts and Spotlight — and nothing else. " +
+            "stutter to Reels, Shorts and Spotlight — and nothing else. " +
             "Android will ask to allow a VPN; it stays on your phone.",
         tone = Tone.SETUP,
         action = Action.THROTTLE,
@@ -294,7 +294,9 @@ private fun ProtectionUiState.toStatus(): ProtectionStatus = when {
         headline = "Slowing ${detected.surface.label()}",
         detail = buildString {
             append(detected.packageName?.let(::appLabel) ?: "Short-form video")
-            if (delayMillis > 0L) append(" · ${delayMillis}ms of friction")
+            if (pulsePeriodMillis > 0L) {
+                append(" · stalls ${seconds(squeezeMillis)}s of every ${seconds(pulsePeriodMillis)}s")
+            }
         },
         tone = Tone.ACTIVE,
         action = null,
@@ -308,6 +310,12 @@ private fun ProtectionUiState.toStatus(): ProtectionStatus = when {
         tone = Tone.READY,
         action = null,
     )
+}
+
+/** 2400 -> "2.4", 5000 -> "5". */
+private fun seconds(millis: Long): String {
+    val tenths = (millis + 50L) / 100L
+    return if (tenths % 10L == 0L) "${tenths / 10L}" else "${tenths / 10L}.${tenths % 10L}"
 }
 
 private fun Surface.label(): String = when (this) {

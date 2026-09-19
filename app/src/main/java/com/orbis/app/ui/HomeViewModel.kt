@@ -50,10 +50,20 @@ data class ProtectionUiState(
     val tunnelRunning: Boolean = false,
     val detected: DetectedSurface = DetectedSurface(),
     val delayMillis: Long = 0L,
+    /** The pulse: squeezed this long in every [pulsePeriodMillis]. */
+    val squeezeMillis: Long = 0L,
+    val pulsePeriodMillis: Long = 0L,
 ) {
     /** A running tunnel is proof of consent, whatever the last check said. */
     val canSlow: Boolean get() = hasVpnConsent || tunnelRunning
 }
+
+private data class TunnelShape(
+    val running: Boolean,
+    val delayMillis: Long,
+    val squeezeMillis: Long,
+    val pulsePeriodMillis: Long,
+)
 
 data class HomeUiState(
     val loading: Boolean = true,
@@ -96,15 +106,19 @@ class HomeViewModel(
     val protection: StateFlow<ProtectionUiState> = combine(
         _access,
         SurfaceMonitor.state,
+        // The pulse's shape, not its phase: `squeezing` flips every few seconds,
+        // and the home screen does not need to wake for each flip.
         OrbisVpnService.tunnelStats
-            .map { it.running to it.delayMillis }
+            .map { TunnelShape(it.running, it.delayMillis, it.squeezeMillis, it.pulsePeriodMillis) }
             .distinctUntilChanged(),
         ThrottleSettings.enabled,
     ) { access, detected, tunnel, autoThrottle ->
         access.copy(
             detected = detected,
-            tunnelRunning = tunnel.first,
-            delayMillis = tunnel.second,
+            tunnelRunning = tunnel.running,
+            delayMillis = tunnel.delayMillis,
+            squeezeMillis = tunnel.squeezeMillis,
+            pulsePeriodMillis = tunnel.pulsePeriodMillis,
             autoThrottle = autoThrottle,
         )
     }.stateIn(

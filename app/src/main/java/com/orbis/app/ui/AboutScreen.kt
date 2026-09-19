@@ -257,11 +257,12 @@ fun AboutScreen(
             )
             NumberedStep(
                 3,
-                "Packets are held back briefly",
-                "Data heading to those apps waits a fraction of a second before " +
-                    "being passed on. Nothing is dropped or altered — videos still " +
-                    "play, they just take a beat longer to get going, which is " +
-                    "exactly the beat where you notice you have been scrolling."
+                "The feed is squeezed, then let go",
+                "Every five seconds the app's downloads are held to a trickle for " +
+                    "a moment, then released. Videos stall or drop in quality, " +
+                    "recover, and stall again - and that stutter is exactly the " +
+                    "moment you notice you have been scrolling. Nothing you send or " +
+                    "receive is read or altered."
             )
             NumberedStep(
                 4,
@@ -272,13 +273,14 @@ fun AboutScreen(
             )
             Callout(
                 title = "How much slower, exactly?",
-                body = "Between ${ThrottleEngine.BASE_DELAY_MILLIS}ms and " +
-                    "${ThrottleEngine.MAX_DELAY_MILLIS}ms of delay — that is under " +
-                    "half a second at the very most. It starts at the low end and " +
-                    "climbs as your short-video time for the day adds up, so a " +
-                    "quick look costs you almost nothing and a long session gets " +
-                    "steadily draggier. The cap is deliberately low: a delay big " +
-                    "enough to feel broken just gets the app uninstalled, which " +
+                body = "Each squeeze lasts ${ThrottleEngine.MIN_SQUEEZE_MILLIS / 100 / 10.0} " +
+                    "seconds on a light day, rising to " +
+                    "${ThrottleEngine.MAX_SQUEEZE_MILLIS / 1000} of every " +
+                    "${ThrottleEngine.PULSE_PERIOD_MILLIS / 1000} as your short-video " +
+                    "time for the day adds up across all your apps. In between, the " +
+                    "feed runs close to normal on a light day and noticeably slower " +
+                    "on a heavy one. It is never cut off completely: a " +
+                    "feed that feels broken just gets the app uninstalled, which " +
                     "helps nobody."
             )
         }

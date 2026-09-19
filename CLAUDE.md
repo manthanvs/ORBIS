@@ -184,7 +184,9 @@ These are design intent, not implementation detail. Do not relax them without as
 
 - **The user always holds the lever.** ORBIS slows a feed; it never blocks one, and clear time earned through `EarnAction` buys it back to full speed. Anything that removes the option — a hard block, a lockout, a penalty that cannot be worked off — breaks the thesis, because losing an option provokes more pushback than the habit does. Credit **expires nightly** and is **capped daily**: a bankable balance turns a daily trade into a savings account, and an uncapped one rewards whoever grinds hardest.
 - **The TUN interface must be released on stop.** A VPN service that leaks its interface throttles the user's phone after the app is closed.
-- **Keep the throttle delay modest in development** (a few hundred ms). Cranking it up to make a demo obvious makes the app feel broken instead of intentional.
+- **Friction pulses; it never cuts off.** Every 5 s the feed's downloads are squeezed to a ~16 KB/s trickle for 1.5–3 s (longer as today's short-form minutes add up, across *all* apps), then released to a capped rate. Never zero, never a block: a feed that feels broken gets the app uninstalled. See "The pulse" below for why a constant delay was abandoned.
+
+- **An app on TCP is left alone, not starved.** The relay drops TCP. When a routed app's traffic moves there, the throttle stops being friction and becomes breakage, so `TcpFallback` stands ORBIS down for that app (10 min, doubling to an hour). A missed throttle is a far smaller failure than a frozen app.
 
 ## Performance invariants
 
@@ -248,6 +250,46 @@ it returns, so the lifecycle thread must never be handed the object itself.
 Changing only the delay does **not** rebuild the tunnel — it is adopted in place.
 That is what lets the throttle re-scale across a long session instead of staying
 frozen at whatever usage said when the feed first appeared.
+
+### The pulse, and what was measured getting there
+
+A constant 120–400 ms delay could not be felt. On CPH2585 Instagram and Morphe
+both sat at the 400 ms maximum and only Morphe ever felt slower: added latency
+barely dents a flowing video stream, Instagram and Snapchat pre-load the next
+reels, and the delay only ever touched the *upload* direction. The video arrives
+on the download.
+
+So `Friction` squeezes the **download**, policed in `drainReplies` by a
+`TokenBucket` (dropping, not queueing — congestion control reads drops as a slow
+network, and queueing a video would need unbounded memory). Three things were
+each measured wrong before they were right:
+
+- **Uncapped gaps are invisible.** With full speed between squeezes, Instagram
+  pulled up to 5.7 MB/s in each 2 s gap — a whole reel — and played straight
+  through 3 s squeezes with zero stalls. Gaps are capped: ~600 KB/s on a light
+  day to 160 KB/s on a heavy one. Then a reel took 4.4 s to start and stalled
+  twice in 15 s.
+- **Police bulk flows only.** One shared allowance let the video connection
+  starve new connections' QUIC handshakes; YouTube decided QUIC was broken, fell
+  back to TCP, and a Short froze on its first frame. A flow runs free until it has
+  carried `BULK_FLOW_BYTES` (64 KB) — far more than a handshake.
+- **Apps remember a fallback.** Even after that fix, Morphe kept sending video
+  over TCP (73 TCP drops vs 135 KB of UDP in 24 s) — surviving a force-stop, so
+  the memory is likely persisted. Hence the TCP safety valve rather than hoping
+  it clears.
+
+Watch it from the computer — logcat is dropped on ColorOS:
+
+```bash
+adb shell dumpsys activity service com.orbis.app/.vpn.OrbisVpnService
+```
+
+prints one line: `squeezing=`, `bytesIn=`, `policed=`, `udpFwd=`, `tcpDropped=`.
+Poll it every half-second while a feed plays to see the rhythm.
+
+**The honest limit:** an app that has moved to TCP gets no friction while it is
+stood down. The real fix is a TCP relay — a userspace TCP engine in the VPN —
+which the user chose not to build yet.
 
 ### The tunnel comes down on a watchdog, not on the next event
 

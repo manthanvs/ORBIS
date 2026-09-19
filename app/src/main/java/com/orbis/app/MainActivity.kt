@@ -244,7 +244,7 @@ private fun OrbisApp(openOnDeeds: Boolean) {
 private fun startTunnelTest(context: Context) {
     OrbisVpnService.start(
         context,
-        delayMillis = ThrottleEngine.MAX_DELAY_MILLIS,
+        friction = ThrottleEngine.TEST_FRICTION,
         routePackages = OrbisVpnService.routedPackages(),
         autoStopMillis = OrbisVpnService.MANUAL_TEST_MILLIS,
     )

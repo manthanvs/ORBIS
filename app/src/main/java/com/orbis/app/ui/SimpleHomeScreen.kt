@@ -333,8 +333,8 @@ private fun ProtectionUiState.toSimpleStatus(
 
     !autoThrottle -> SimpleStatus(
         headline = "One switch to go",
-        body = "Turn this on and Reels, Shorts and Spotlight will load a little " +
-            "slower — just enough to notice. Everything else stays exactly as " +
+        body = "Turn this on and Reels, Shorts and Spotlight will stall for a " +
+            "moment every few seconds — on purpose. Everything else stays exactly as " +
             "fast as it is now. Android will ask whether ORBIS may set up a VPN: " +
             "that is how it adds the drag, and it never leaves your phone.",
         tone = SimpleTone.SETUP,
@@ -359,8 +359,8 @@ private fun ProtectionUiState.toSimpleStatus(
 
     tunnelRunning && detected.surface.throttled -> SimpleStatus(
         headline = "Slowing this down right now",
-        body = "You are in ${detected.surface.friendlyName()}, so ORBIS is making it " +
-            "load a bit slower on purpose. Leave the feed and everything speeds " +
+        body = "You are in ${detected.surface.friendlyName()}, so every few seconds " +
+            "ORBIS makes it stall on purpose. Leave the feed and everything speeds " +
             "straight back up.",
         tone = SimpleTone.WORKING,
         stepLabel = null,
@@ -568,16 +568,17 @@ private fun HowItWorksCard() {
             )
             HowStep(
                 number = 2,
-                title = "It adds a small drag to endless feeds",
-                body = "While Reels, Shorts or Spotlight is on screen, videos take a " +
-                    "moment longer to load. Long enough to notice, short enough to " +
-                    "keep using if you really want to.",
+                title = "It makes endless feeds stutter",
+                body = "While Reels, Shorts or Spotlight is on screen, every five " +
+                    "seconds the feed is squeezed for a moment, then let go. Enough " +
+                    "to break the spell, never enough to break the app.",
             )
             HowStep(
                 number = 3,
-                title = "The more you scroll, the more drag",
-                body = "A light day is barely touched and a heavy day gets a bit " +
-                    "more. It adjusts to you instead of blocking anything.",
+                title = "The more you scroll, the longer it stalls",
+                body = "Each squeeze starts at a second and a half and grows to three " +
+                    "as your short-video time adds up across every app - switching " +
+                    "apps does not reset it. It never blocks anything.",
             )
             HowStep(
                 number = 4,

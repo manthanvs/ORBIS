@@ -18,6 +18,7 @@ import com.orbis.app.data.UsageRepository
 import com.orbis.app.earn.ClearTimeHolder
 import com.orbis.app.earn.EarnRepository
 import com.orbis.app.earn.FocusSession
+import com.orbis.app.throttle.TcpFallback
 import com.orbis.app.throttle.ThrottleEngine
 import com.orbis.app.throttle.ThrottleSettings
 import com.orbis.app.usage.UsageProfileHolder
@@ -243,6 +244,14 @@ class OrbisAccessibilityService : AccessibilityService() {
             return
         }
 
+        // An app the relay would only starve - it has moved to TCP - is left at
+        // full speed for a while, credit untouched. Checked before anything that
+        // would count this as throttled, so the watchdog brings the tunnel down.
+        if (TcpFallback.isStandingDown(activePackage, System.currentTimeMillis())) {
+            if (OrbisVpnService.isRunning.value) scheduleWatchdog()
+            return
+        }
+
         // Clear time the user has earned buys this feed back to full speed. ORBIS
         // then gets out of the way completely - including taking the tunnel down,
         // exactly as it would for a surface that was never throttled. Charging
@@ -267,18 +276,18 @@ class OrbisAccessibilityService : AccessibilityService() {
         if (route.isEmpty()) return
 
         // Real usage, not EMPTY: this is what makes the throttle adaptive.
-        val delay = ThrottleEngine
+        val friction = ThrottleEngine
             .ruleFor(surface, UsageProfileHolder.profile.value)
-            .delayMillis
+            .friction
 
         // Compared against the service rather than a local copy, so a tunnel the
         // watchdog stopped behind this gate's back is noticed. Re-sending on every
         // evaluation would be a startService round trip several times a second.
         val current = OrbisVpnService.isRunning.value &&
             OrbisVpnService.routedApps.value == route &&
-            OrbisVpnService.currentDelayMillis == delay
+            OrbisVpnService.currentFriction == friction
 
-        if (!current) OrbisVpnService.start(this, delay, route)
+        if (!current) OrbisVpnService.start(this, friction, route)
         scheduleWatchdog()
     }
 

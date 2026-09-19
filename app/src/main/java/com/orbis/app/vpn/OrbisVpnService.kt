@@ -16,12 +16,18 @@ import android.os.SystemClock
 import android.util.Log
 import com.orbis.app.R
 import com.orbis.app.surface.BrowserPackages
+import com.orbis.app.throttle.Friction
+import com.orbis.app.throttle.TcpFallback
+import com.orbis.app.throttle.TcpStarvationDetector
+import com.orbis.app.throttle.TokenBucket
 import com.orbis.app.usage.TargetApp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.FileDescriptor
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.PrintWriter
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.Buffer
@@ -104,6 +110,9 @@ class OrbisVpnService : VpnService() {
         @Volatile
         var closed: Boolean = false
 
+        /** Download bytes this flow has carried. Selector thread only. */
+        var received: Long = 0L
+
         /** Payload offset of a reply, i.e. where its headers stop. */
         val replyHeaderBytes: Int =
             if (ipv6) Ipv6.HEADER_BYTES + UDP_HEADER_BYTES else IPV4_HEADER_BYTES + UDP_HEADER_BYTES
@@ -156,11 +165,25 @@ class OrbisVpnService : VpnService() {
     private val delayed = DelayQueue<Pending>()
     private val pendingPool = ArrayBlockingQueue<Pending>(MAX_PENDING_PACKETS)
 
+    /** Polices downloads to the pulse's ceiling. Selector thread only. */
+    private val inboundBucket = TokenBucket()
+
     @Volatile
     private var active = false
 
-    /** What this tunnel is currently routing; empty when it is down. */
+    /**
+     * What this tunnel is currently routing; empty when it is down. Volatile:
+     * written by the lifecycle thread, read by the selector's TCP check.
+     */
+    @Volatile
     private var routedNow: List<String> = emptyList()
+
+    /** Watches for an app that has moved to TCP. Selector thread only. */
+    private val tcpStarvation = TcpStarvationDetector()
+
+    /** Set once this session has stood down, so it trips only once. */
+    @Volatile
+    private var stoodDown = false
 
     /**
      * Every start and stop runs here, one at a time.
@@ -201,12 +224,12 @@ class OrbisVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
-        val requestedDelay = intent?.getLongExtra(EXTRA_DELAY_MILLIS, 0L) ?: 0L
+        val requestedFriction = Friction.fromArray(intent?.getLongArrayExtra(EXTRA_FRICTION))
         val requestedRoute = intent?.getStringArrayListExtra(EXTRA_ROUTE_PACKAGES)?.toList()
             ?: emptyList()
         val autoStopMillis = intent?.getLongExtra(EXTRA_AUTO_STOP_MILLIS, 0L) ?: 0L
 
-        post { handleStart(requestedDelay, requestedRoute, autoStopMillis) }
+        post { handleStart(requestedFriction, requestedRoute, autoStopMillis) }
         return START_STICKY
     }
 
@@ -219,11 +242,12 @@ class OrbisVpnService : VpnService() {
      * Brings the tunnel up, re-points it at a different app, or just re-scales it.
      *
      * Android fixes the allow-list at `establish()` time, so a change of routed
-     * app is a full rebuild. A change of delay alone is not - that is adopted in
-     * place, which is what lets the throttle track usage across a long session
-     * rather than staying frozen at whatever it was when the feed first appeared.
+     * app is a full rebuild. A change of friction alone is not - that is adopted
+     * in place, keeping the pulse's rhythm, which is what lets the throttle track
+     * usage across a long session rather than staying frozen at whatever it was
+     * when the feed first appeared.
      */
-    private fun handleStart(delay: Long, route: List<String>, autoStopMillis: Long) {
+    private fun handleStart(requested: Friction, route: List<String>, autoStopMillis: Long) {
         if (route.isEmpty()) {
             status = "nothing to route"
             publishStats()
@@ -235,8 +259,8 @@ class OrbisVpnService : VpnService() {
         }
 
         if (active && route == routedNow) {
-            delayMillis = delay
-            status = "tunnel up, delay ${delay}ms"
+            friction = requested
+            status = "tunnel up, ${describe(requested)}"
             armAutoStop(autoStopMillis)
             publishStats()
             return
@@ -244,7 +268,7 @@ class OrbisVpnService : VpnService() {
 
         if (active) shutdown()
 
-        delayMillis = delay
+        friction = requested
         start(route)
         armAutoStop(autoStopMillis)
     }
@@ -327,6 +351,15 @@ class OrbisVpnService : VpnService() {
         udpPacketsForwarded.set(0)
         tcpPacketsDropped.set(0)
         packetsDropped.set(0)
+        bytesIn.set(0)
+        packetsPoliced.set(0)
+
+        // Each tunnel starts its own rhythm, squeeze first, so the drag lands the
+        // moment a feed opens. The bucket starts empty for the same reason.
+        pulseEpochNanos = System.nanoTime()
+        inboundBucket.reset()
+        tcpStarvation.reset()
+        stoodDown = false
 
         selector = openedSelector
         // Tops the pool back up rather than only filling it once, so a restart
@@ -335,9 +368,9 @@ class OrbisVpnService : VpnService() {
             pendingPool.offer(Pending())
         }
 
-        status = "tunnel up, delay ${delayMillis}ms"
+        status = "tunnel up, ${describe(friction)}"
         publishStats()
-        Log.i(TAG, "tunnel up for ${route.joinToString()}, delay=${delayMillis}ms")
+        Log.i(TAG, "tunnel up for ${route.joinToString()}, ${describe(friction)}")
 
         // Both streams wrap the *same* descriptor. Neither is ever closed: the
         // ParcelFileDescriptor owns that fd, and closing it three times risks
@@ -395,7 +428,7 @@ class OrbisVpnService : VpnService() {
 
         // Include the delay: it is the only way to see that the throttle actually
         // scaled with usage rather than sitting at the base value.
-        status = "relay running, delay ${delayMillis}ms"
+        status = "relay running, ${describe(friction)}"
 
         try {
             while (active) {
@@ -510,7 +543,8 @@ class OrbisVpnService : VpnService() {
     ) {
         flow.lastUsedMillis = SystemClock.elapsedRealtime()
 
-        val delay = delayMillis
+        // Delayed only while squeezed: between squeezes the feed runs normally.
+        val delay = friction.delayAt(pulseElapsedMillis(System.nanoTime()))
         if (delay <= 0L) {
             // Window the shared buffer onto this payload - no copy, no allocation.
             (sendBuffer as Buffer).clear()
@@ -593,12 +627,49 @@ class OrbisVpnService : VpnService() {
 
                 evictIdleFlows()
                 publishStats()
+                checkTcpFallback()
             }
         } catch (t: Throwable) {
             if (active) {
                 status = "selector died: ${t::class.simpleName}: ${t.message}"
                 Log.e(TAG, "selector stopped: ${t.message}")
             }
+        }
+    }
+
+    /**
+     * The safety valve: an app whose traffic has moved to TCP is left alone.
+     *
+     * This relay drops TCP, so for such an app the throttle is not friction but
+     * breakage - a Short frozen on its first frame. Rather than starve it, ORBIS
+     * stands down for that app for a while; [TcpFallback] decides how long, and
+     * the gate will not raise the tunnel for it until then. Runs on the selector
+     * thread, once per pass.
+     *
+     * Only automatic sessions are judged. The manual test routes every app at
+     * once, and its counters describe no single one of them.
+     */
+    private fun checkTcpFallback() {
+        if (stoodDown) return
+        val route = routedNow
+        if (route.size != 1) return
+
+        val starving = tcpStarvation.starving(
+            nowMillis = SystemClock.elapsedRealtime(),
+            tcpDropped = tcpPacketsDropped.get(),
+            bytesIn = bytesIn.get(),
+        )
+        if (!starving) return
+
+        stoodDown = true
+        val packageName = route.single()
+        val minutes = TcpFallback.standDown(packageName, System.currentTimeMillis()) / 60_000L
+        status = "$packageName is on TCP, which ORBIS cannot relay - left at full " +
+            "speed for ${minutes}m"
+        Log.i(TAG, status)
+        post {
+            shutdown()
+            stopSelf()
         }
     }
 
@@ -643,6 +714,27 @@ class OrbisVpnService : VpnService() {
 
             flow.lastUsedMillis = SystemClock.elapsedRealtime()
 
+            // The squeeze. Downloads beyond this phase's ceiling are dropped, and
+            // the sender's congestion control reads that as a slow network and
+            // backs off - which is what the player then shows. This is the
+            // direction the video arrives on; the old delay never touched it.
+            //
+            // Only a flow that is already streaming is policed. Measured on
+            // CPH2585: policing every flow from one shared allowance let the video
+            // connection starve new connections' handshakes, YouTube decided its
+            // QUIC route was broken, fell back to TCP - which this relay drops -
+            // and a Short froze on its first frame. A handshake is a few KB, so a
+            // flow runs free until it has carried [BULK_FLOW_BYTES].
+            flow.received += read
+            if (flow.received > BULK_FLOW_BYTES) {
+                val nowNanos = System.nanoTime()
+                val ceiling = friction.downloadCeilingAt(pulseElapsedMillis(nowNanos))
+                if (!inboundBucket.tryTake(read, ceiling, nowNanos)) {
+                    packetsPoliced.incrementAndGet()
+                    return@repeat
+                }
+            }
+
             val total = if (flow.ipv6) {
                 Ipv6.buildUdpInto(
                     out = out,
@@ -668,6 +760,7 @@ class OrbisVpnService : VpnService() {
             }
 
             output.write(out, 0, total)
+            bytesIn.addAndGet(read.toLong())
         }
     }
 
@@ -871,6 +964,25 @@ class OrbisVpnService : VpnService() {
         Log.i(TAG, status)
     }
 
+    /**
+     * `adb shell dumpsys activity service com.orbis.app/.vpn.OrbisVpnService`
+     *
+     * ColorOS drops this app's logcat, so this is how the pulse is watched from a
+     * computer: one line, cheap enough to poll every second while a feed plays.
+     */
+    override fun dump(fd: FileDescriptor?, writer: PrintWriter?, args: Array<out String>?) {
+        writer ?: return
+        publishStats()
+        val s = tunnelStats.value
+        writer.println(
+            "ORBIS running=${s.running} routed=${s.routed.joinToString("+")} " +
+                "squeezing=${s.squeezing} squeeze=${s.squeezeMillis}/${s.pulsePeriodMillis}ms " +
+                "delay=${s.delayMillis}ms bytesIn=${s.bytesIn} policed=${s.packetsPoliced} " +
+                "udpFwd=${s.udpForwarded} tcpDropped=${s.tcpDropped} shed=${s.packetsDropped} " +
+                "flows=${s.activeFlows} status=${s.status}"
+        )
+    }
+
     private fun publishStats() {
         stats.value = TunnelStats(
             running = active,
@@ -879,8 +991,13 @@ class OrbisVpnService : VpnService() {
             tcpDropped = tcpPacketsDropped.get(),
             packetsDropped = packetsDropped.get(),
             activeFlows = flowsV4.size + flowsV6.size,
-            delayMillis = delayMillis,
+            delayMillis = friction.delayMillis,
             routed = routedNow,
+            bytesIn = bytesIn.get(),
+            packetsPoliced = packetsPoliced.get(),
+            squeezing = active && friction.squeezingAt(pulseElapsedMillis(System.nanoTime())),
+            squeezeMillis = friction.squeezeMillis,
+            pulsePeriodMillis = friction.periodMillis,
             status = status,
         )
     }
@@ -898,7 +1015,8 @@ class OrbisVpnService : VpnService() {
 
         const val ACTION_START = "com.orbis.app.vpn.START"
         const val ACTION_STOP = "com.orbis.app.vpn.STOP"
-        const val EXTRA_DELAY_MILLIS = "delayMillis"
+        /** A [Friction] as [Friction.toArray]. */
+        const val EXTRA_FRICTION = "friction"
 
         /** Which packages this session may route. See [handleStart]. */
         const val EXTRA_ROUTE_PACKAGES = "routePackages"
@@ -946,6 +1064,12 @@ class OrbisVpnService : VpnService() {
         /** Replies drained per flow per select, so one busy flow cannot starve others. */
         private const val MAX_REPLIES_PER_SELECT = 16
 
+        /**
+         * Download bytes a flow may carry before the squeeze applies to it -
+         * comfortably more than a QUIC handshake, far less than a video.
+         */
+        private const val BULK_FLOW_BYTES = 64L * 1024L
+
         private const val THREAD_JOIN_MILLIS = 500L
 
         private val running = MutableStateFlow(false)
@@ -963,11 +1087,26 @@ class OrbisVpnService : VpnService() {
          */
         val routedApps: StateFlow<List<String>> = routed.asStateFlow()
 
+        /** Immutable, swapped whole, so all three relay threads see a consistent set. */
         @Volatile
-        private var delayMillis = 0L
+        private var friction = Friction.NONE
 
-        /** The delay the live tunnel is applying, for the gate's change check. */
-        val currentDelayMillis: Long get() = delayMillis
+        /** When the current tunnel's pulse started; its squeezes are timed from here. */
+        @Volatile
+        private var pulseEpochNanos = 0L
+
+        /** The friction the live tunnel is applying, for the gate's change check. */
+        val currentFriction: Friction get() = friction
+
+        private fun pulseElapsedMillis(nowNanos: Long): Long =
+            (nowNanos - pulseEpochNanos) / 1_000_000L
+
+        private fun describe(friction: Friction): String =
+            if (friction.periodMillis > 0L) {
+                "squeezing ${friction.squeezeMillis}ms of every ${friction.periodMillis}ms"
+            } else {
+                "delay ${friction.delayMillis}ms"
+            }
 
         /**
          * Diagnostics are surfaced in the UI rather than logged, because ColorOS
@@ -982,6 +1121,10 @@ class OrbisVpnService : VpnService() {
         private val tcpPacketsDropped = AtomicLong(0)
         private val packetsRead = AtomicLong(0)
         private val packetsDropped = AtomicLong(0)
+
+        /** Download bytes delivered to the app, and packets the squeeze held back. */
+        private val bytesIn = AtomicLong(0)
+        private val packetsPoliced = AtomicLong(0)
 
         @Volatile
         var status: String = "idle"
@@ -1026,14 +1169,14 @@ class OrbisVpnService : VpnService() {
          */
         fun start(
             context: Context,
-            delayMillis: Long = 0L,
+            friction: Friction = Friction.NONE,
             routePackages: List<String> = routedPackages(),
             autoStopMillis: Long = 0L,
         ) {
             context.startService(
                 Intent(context, OrbisVpnService::class.java)
                     .setAction(ACTION_START)
-                    .putExtra(EXTRA_DELAY_MILLIS, delayMillis)
+                    .putExtra(EXTRA_FRICTION, friction.toArray())
                     .putStringArrayListExtra(EXTRA_ROUTE_PACKAGES, ArrayList(routePackages))
                     .putExtra(EXTRA_AUTO_STOP_MILLIS, autoStopMillis)
             )
@@ -1062,5 +1205,13 @@ data class TunnelStats(
     val delayMillis: Long = 0L,
     /** The packages this session is routing - what is actually being slowed. */
     val routed: List<String> = emptyList(),
+    /** Download bytes delivered to the routed app. */
+    val bytesIn: Long = 0L,
+    /** Download packets the squeeze dropped. */
+    val packetsPoliced: Long = 0L,
+    /** Whether the pulse is squeezing at this moment. */
+    val squeezing: Boolean = false,
+    val squeezeMillis: Long = 0L,
+    val pulsePeriodMillis: Long = 0L,
     val status: String = "idle",
 )

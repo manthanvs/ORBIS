@@ -16,13 +16,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.orbis.app.surface.DetectedSurface
 import com.orbis.app.surface.Surface
+import com.orbis.app.throttle.TcpFallback
 import com.orbis.app.ui.theme.OrbisTheme
 import com.orbis.app.usage.TargetApp
 import com.orbis.app.vpn.TunnelStats
@@ -186,13 +189,40 @@ private fun Diagnostics(tunnel: TunnelStats) {
         DiagnosticRow("TCP dropped", tunnel.tcpDropped.toString())
         DiagnosticRow("shed (back-pressure)", tunnel.packetsDropped.toString())
         DiagnosticRow("open flows", tunnel.activeFlows.toString())
-        DiagnosticRow("delay", "${tunnel.delayMillis}ms")
+        DiagnosticRow(
+            "pulse",
+            if (tunnel.pulsePeriodMillis > 0L) {
+                "${tunnel.squeezeMillis}ms of every ${tunnel.pulsePeriodMillis}ms"
+            } else {
+                "off"
+            },
+        )
+        DiagnosticRow("downloaded", "${tunnel.bytesIn / 1024} KB")
+        DiagnosticRow("held back by squeeze", tunnel.packetsPoliced.toString())
+        DiagnosticRow("delay (while squeezed)", "${tunnel.delayMillis}ms")
         DiagnosticRow("routing", routedLabel(tunnel.routed))
+        StoodDownRows()
         Text(
             text = tunnel.status,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+/**
+ * Apps ORBIS has stood down for because they moved to TCP, with the minutes
+ * left. Said plainly, because "why is Morphe not slowed?" deserves an answer.
+ */
+@Composable
+private fun StoodDownRows() {
+    val standingDown by TcpFallback.standingDown.collectAsStateWithLifecycle()
+    val now = System.currentTimeMillis()
+    standingDown.filterValues { it > now }.forEach { (packageName, until) ->
+        DiagnosticRow(
+            "left alone (on TCP)",
+            "${routedLabel(listOf(packageName))} · ${(until - now) / 60_000L + 1}m",
         )
     }
 }
