@@ -50,6 +50,27 @@ Re-verified on CPH2585 after the selector rewrite, one Reels session:
 ~6 s after Reels appears and drops **3 s** after leaving for an app ORBIS does
 not observe — the watchdog, which is the case the old hysteresis never handled.
 
+**Re-verified end to end on CPH2585, 2026-09-19**, against the user's real apps.
+Each row routed exactly one app (its uid plus SDK sandbox):
+
+| On screen | Tunnel | Notes |
+|---|---|---|
+| Instagram Reels / InstaPro Reels (hidden app) | that app only, up in ~1 s | new reels and ads load under it |
+| Instagram / InstaPro feed, Stories, DMs | down | feed videos are out of scope by design |
+| Morphe / YouTube Shorts | that app only | held 26 s of untouched playback |
+| Morphe long-form video | down | 17 s of playback, no tunnel |
+| Reels → Shorts directly | re-pointed in ~2 s | never both |
+| `m.youtube.com/shorts` in Edge | Edge only | follows the link when Edge hands it to Morphe |
+| Snapchat Spotlight → chats | Snapchat → down in ~5 s | |
+| WhatsApp | down | uid absent from every VPN network |
+| Screen off / unlock | down in 0.8 s / back in 0.8 s | |
+| With clear time | down while credit lasts | 300 s earned, 300 s spent, then up mid-video |
+
+Focus sessions: broken by opening a feed with ORBIS closed (cleared silently);
+completed with the screen off and ORBIS swiped away, paid out by the job 6 s
+after the end with a "Focus session done" notification. The 30 s manual tunnel
+test stopped itself. The database migrated 3 → 4 with existing rows intact.
+
 The WhatsApp invariant is enforced by the OS and observable: while the tunnel is
 up, `dumpsys connectivity` shows the ORBIS network's `Uids:` set. WhatsApp's uid
 is absent. That is the check to re-run if the routing logic is ever touched.
@@ -453,6 +474,7 @@ Build in this order. Verify each "Done when" before moving on. Commit after ever
 | 3 | ~~Usage profile + adaptive intensity~~ | **Done** — `UsageProfileHolder` feeds real usage into `ThrottleEngine`; delay scales 120 ms → 400 ms with daily use |
 | 3 | Usage profile + adaptive intensity | Highest-usage app gets the strongest throttle, across two usage patterns |
 | 6 | ~~Surface-scoped routing~~ | **Done** — one app routed at a time, delay re-scales in place, manual tunnel self-stops after 30 s, browser short-video scales with the heaviest short-form app instead of being pinned at 120 ms |
+| 7 | ~~Day-to-day hardening~~ | **Done, verified on device** — modded clients (InstaPro, Morphe), VPN consent in onboarding, watchdog re-reads the screen, screen-off stand-down, per-activity usage pairing, focus sessions that survive the app closing |
 | 4 | ~~Dashboard~~ | **Done** — reclaimed time vs the user's own baseline, 7-day trend |
 | 5 | ~~Good deed challenge~~ | **Done** — WorkManager prompt → camera → Room entry → streak. The full loop still wants one manual run-through on a device. |
 
