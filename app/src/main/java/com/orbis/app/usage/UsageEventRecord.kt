@@ -10,6 +10,13 @@ data class UsageEventRecord(
     val packageName: String,
     val type: UsageEventType,
     val timestampMillis: Long,
+    /**
+     * The activity class, which is what pairs a pause with its resume. Null
+     * treats every event of the package as one activity - fine for a stream
+     * with no overlapping activities, wrong for a real app. See
+     * [ForegroundTimeCalculator].
+     */
+    val activity: String? = null,
 )
 
 enum class UsageEventType {

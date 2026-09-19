@@ -50,6 +50,7 @@ class UsageStatsSource(
                 packageName = packageName,
                 type = type,
                 timestampMillis = event.timeStamp,
+                activity = event.className,
             )
         }
         return records
