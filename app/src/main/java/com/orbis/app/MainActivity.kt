@@ -10,8 +10,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -24,9 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -176,58 +180,65 @@ private fun OrbisApp(openOnDeeds: Boolean) {
             }
         },
     ) { innerPadding ->
-        val contentModifier = Modifier.padding(innerPadding)
+        // Capped and centred rather than edge-to-edge: on a tablet, an unfolded
+        // phone or landscape, a full-width line of body text is unreadable. The
+        // cap is on the content, so every screen inherits it from here.
+        val contentModifier = Modifier
+            .padding(innerPadding)
+            .widthIn(max = 640.dp)
 
         // A `when` rather than three always-composed screens: only the selected
         // branch is composed, so the tab that is not on screen collects nothing.
-        when (destination) {
-            Destination.HOME -> HomeRoute(
-                viewModel = homeViewModel,
-                protection = protection,
-                simpleMode = simpleMode,
-                onEnableThrottle = turnOnAutoThrottle,
-                onOpenDeeds = { destination = Destination.EARN },
-                onOpenAbout = { destination = Destination.ABOUT },
-                onSimpleModeChange = UiSettings::setSimpleMode,
-                modifier = contentModifier,
-            )
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            when (destination) {
+                Destination.HOME -> HomeRoute(
+                    viewModel = homeViewModel,
+                    protection = protection,
+                    simpleMode = simpleMode,
+                    onEnableThrottle = turnOnAutoThrottle,
+                    onOpenDeeds = { destination = Destination.EARN },
+                    onOpenAbout = { destination = Destination.ABOUT },
+                    onSimpleModeChange = UiSettings::setSimpleMode,
+                    modifier = contentModifier,
+                )
 
-            Destination.EARN -> EarnRoute(modifier = contentModifier)
+                Destination.EARN -> EarnRoute(modifier = contentModifier)
 
-            Destination.CONTROLS -> ControlsRoute(
-                protection = protection,
-                onToggleTunnel = {
-                    if (protection.tunnelRunning) {
-                        OrbisVpnService.stop(context)
-                    } else {
-                        val consent = VpnService.prepare(context)
-                        if (consent == null) {
-                            startTunnelTest(context)
+                Destination.CONTROLS -> ControlsRoute(
+                    protection = protection,
+                    onToggleTunnel = {
+                        if (protection.tunnelRunning) {
+                            OrbisVpnService.stop(context)
                         } else {
-                            // Starting it was the point, so carry that intent
-                            // across the dialog.
-                            startAfterConsent = true
-                            consentLauncher.launch(consent)
+                            val consent = VpnService.prepare(context)
+                            if (consent == null) {
+                                startTunnelTest(context)
+                            } else {
+                                // Starting it was the point, so carry that intent
+                                // across the dialog.
+                                startAfterConsent = true
+                                consentLauncher.launch(consent)
+                            }
                         }
-                    }
-                },
-                onAutoThrottleChange = { wanted ->
-                    // Never starts the tunnel here: the accessibility gate raises it
-                    // when a short-form feed actually appears.
-                    if (wanted) {
-                        turnOnAutoThrottle()
-                    } else {
-                        ThrottleSettings.setEnabled(false)
-                        if (protection.tunnelRunning) OrbisVpnService.stop(context)
-                    }
-                },
-                modifier = contentModifier,
-            )
+                    },
+                    onAutoThrottleChange = { wanted ->
+                        // Never starts the tunnel here: the accessibility gate raises it
+                        // when a short-form feed actually appears.
+                        if (wanted) {
+                            turnOnAutoThrottle()
+                        } else {
+                            ThrottleSettings.setEnabled(false)
+                            if (protection.tunnelRunning) OrbisVpnService.stop(context)
+                        }
+                    },
+                    modifier = contentModifier,
+                )
 
-            Destination.ABOUT -> AboutRoute(
-                protection = protection,
-                modifier = contentModifier,
-            )
+                Destination.ABOUT -> AboutRoute(
+                    protection = protection,
+                    modifier = contentModifier,
+                )
+            }
         }
     }
 }

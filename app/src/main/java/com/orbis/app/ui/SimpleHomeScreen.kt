@@ -381,7 +381,7 @@ private fun ProtectionUiState.toSimpleStatus(
     )
 }
 
-private fun Surface.friendlyName(): String = when (this) {
+internal fun Surface.friendlyName(): String = when (this) {
     Surface.REELS -> "Instagram Reels"
     Surface.SHORTS -> "YouTube Shorts"
     Surface.SPOTLIGHT -> "Snapchat Spotlight"
@@ -561,6 +561,10 @@ private fun HowItWorksCard() {
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
+
+            // The three pictures first. Someone who reads nothing else on this
+            // screen still leaves knowing what the app does.
+            HowItWorksStrip()
 
             HowStep(
                 number = 1,

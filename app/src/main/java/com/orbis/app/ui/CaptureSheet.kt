@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -67,9 +66,11 @@ internal fun CaptureSheet(
 
         if (photoPath == null) {
             AndroidView(
+                // Takes whatever is left rather than a fixed 380dp: in landscape,
+                // or on a short screen, that height pushed the shutter button off.
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(380.dp),
+                    .weight(1f),
                 factory = { viewContext ->
                     PreviewView(viewContext).also { previewView ->
                         scope.launch {

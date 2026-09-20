@@ -84,7 +84,9 @@ fun AboutScreen(
 
         InShortCard()
 
-        AboutSection(
+        HowItWorksStrip(Modifier.padding(vertical = 4.dp))
+
+        CollapsibleCard(
             title = "What the name means",
             initiallyExpanded = false,
         ) {
@@ -103,7 +105,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "What gets slowed, and what never does",
             initiallyExpanded = true,
         ) {
@@ -145,7 +147,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "What ORBIS can see about you",
             initiallyExpanded = true,
         ) {
@@ -181,7 +183,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "The three permissions, and why each one",
             initiallyExpanded = false,
         ) {
@@ -236,7 +238,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "How the slow-down actually works",
             initiallyExpanded = false,
         ) {
@@ -285,7 +287,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "Where \"time you got back\" comes from",
             initiallyExpanded = false,
         ) {
@@ -307,7 +309,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "The good-deed challenge",
             initiallyExpanded = false,
         ) {
@@ -325,7 +327,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "Limits, and switching it off",
             initiallyExpanded = false,
         ) {
@@ -409,7 +411,7 @@ private fun InShortCard() {
  * someone find their one question instead.
  */
 @Composable
-private fun AboutSection(
+internal fun CollapsibleCard(
     title: String,
     initiallyExpanded: Boolean,
     content: @Composable () -> Unit,

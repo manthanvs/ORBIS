@@ -59,7 +59,7 @@ fun ControlsScreen(
             fontWeight = FontWeight.Bold,
         )
 
-        SectionTitle("Surface detection")
+        SectionTitle("What ORBIS can see right now")
 
         if (!protection.hasDetection) {
             PermissionCard(
@@ -76,7 +76,7 @@ fun ControlsScreen(
 
         HorizontalDivider()
 
-        SectionTitle("Tunnel")
+        SectionTitle("Slowing")
         TunnelCard(
             tunnel = tunnel,
             // Off when Android has withdrawn the VPN, so the switch never claims a
@@ -85,6 +85,12 @@ fun ControlsScreen(
             onToggle = onToggleTunnel,
             onAutoThrottleChange = onAutoThrottleChange,
         )
+
+        // Out of the card and collapsed: these numbers answer "is it actually
+        // doing anything", which is a question for a bad day, not for every day.
+        CollapsibleCard(title = "Technical details", initiallyExpanded = false) {
+            Diagnostics(tunnel)
+        }
     }
 }
 
@@ -115,9 +121,9 @@ private fun TunnelCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("Status", style = MaterialTheme.typography.bodyMedium)
+                Text("Right now", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    text = if (tunnel.running) "running" else "stopped",
+                    text = if (tunnel.running) "Slowing a feed" else "Not slowing",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                     color = if (tunnel.running) {
@@ -129,9 +135,9 @@ private fun TunnelCard(
             }
 
             Text(
-                text = "Only the one app whose short-form feed is on screen is " +
-                    "routed, so slowing Reels leaves YouTube and your browser " +
-                    "alone. WhatsApp is never routed at all.",
+                text = "Only the app you are actually scrolling gets slowed, so " +
+                    "slowing Reels leaves YouTube and your browser at full speed. " +
+                    "WhatsApp is never slowed at all.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -143,12 +149,12 @@ private fun TunnelCard(
             ) {
                 Column(Modifier.padding(end = 12.dp)) {
                     Text(
-                        text = "Slow Reels/Shorts automatically",
+                        text = "Slow Reels, Shorts and Spotlight",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        text = "ORBIS raises the tunnel only while a short-form feed " +
-                            "is on screen, and drops it again afterwards.",
+                        text = "On while one of those feeds is on screen, off a few " +
+                            "seconds after you leave it.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -157,21 +163,19 @@ private fun TunnelCard(
             }
 
             Button(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
-                Text(if (tunnel.running) "Stop tunnel" else "Run a 30-second test")
+                Text(if (tunnel.running) "Stop slowing now" else "Test it for 30 seconds")
             }
 
             // The manual path routes every app ORBIS will ever route, not just the
             // one on screen, so it says so rather than looking like the real thing.
             Text(
-                text = "The test routes all target apps at once for 30 seconds, then " +
-                    "stops itself. It is for checking the relay, not for everyday " +
-                    "use - leave the switch above to do that.",
+                text = "The test slows every app ORBIS covers for 30 seconds, then " +
+                    "stops on its own. It is for checking ORBIS works, not for " +
+                    "everyday use - the switch above does that.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            HorizontalDivider()
-            Diagnostics(tunnel)
         }
     }
 }
@@ -266,23 +270,25 @@ private fun DetectionCard(detected: DetectedSurface) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("Current surface", style = MaterialTheme.typography.bodyMedium)
+                Text("You are looking at", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    text = detected.surface.name,
+                    text = detected.surface.friendlyName(),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                 )
             }
             Text(
-                text = detected.packageName ?: "waiting for a tracked app…",
+                text = detected.packageName?.let {
+                    TargetApp.fromPackage(it)?.displayName ?: it
+                } ?: "Open Instagram, YouTube or Snapchat and this will fill in.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 text = if (detected.surface.throttled) {
-                    "Slowed while it is on screen"
+                    "Being slowed while it is on screen"
                 } else {
-                    "Left at full speed"
+                    "Running at full speed"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
