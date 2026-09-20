@@ -679,10 +679,15 @@ class OrbisVpnService : VpnService() {
         val route = routedNow
         if (route.size != 1) return
 
+        // Counts what the proxy carried as well as what the relay forwarded. An
+        // app whose video now comes over the TCP proxy has a UDP byte count of
+        // nearly zero, and the phone's strict Private DNS keeps knocking on TCP
+        // 853 - which ignores an HTTP proxy - so judging on UDP alone stood down
+        // the very apps ORBIS was throttling successfully.
         val starving = tcpStarvation.starving(
             nowMillis = SystemClock.elapsedRealtime(),
             tcpDropped = tcpPacketsDropped.get(),
-            bytesIn = bytesIn.get(),
+            bytesIn = bytesIn.get() + (tcpProxy?.bytesCarried() ?: 0L),
         )
         if (!starving) return
 
