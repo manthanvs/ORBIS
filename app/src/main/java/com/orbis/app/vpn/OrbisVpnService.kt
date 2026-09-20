@@ -1159,7 +1159,7 @@ class OrbisVpnService : VpnService() {
          * WhatsApp is absent, and must stay absent.
          */
         fun routedPackages(): List<String> =
-            TargetApp.throttleable.flatMap { it.allPackages } + BrowserPackages.ALL
+            TargetApp.throttleablePackages.toList() + BrowserPackages.ALL
 
         /**
          * @param routePackages the apps this session may carry. Defaults to every

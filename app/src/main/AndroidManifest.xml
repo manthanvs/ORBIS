@@ -38,6 +38,31 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
 
+    <!--
+        Package visibility for VariantDiscovery. Android 11+ hides other apps
+        from queryIntentActivities unless they are queried for here, so without
+        this no build of Instagram, YouTube or Snapchat - official or modded -
+        could ever be found, and ORBIS would be stuck with a hardcoded list.
+
+        Scoped to the three sites whose apps ORBIS targets: this grants no
+        visibility of anything else on the phone. Discovery then keeps only
+        packages that also carry the app's own view ids.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="www.instagram.com" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="www.youtube.com" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="www.snapchat.com" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

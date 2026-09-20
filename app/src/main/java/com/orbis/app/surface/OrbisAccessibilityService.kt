@@ -22,6 +22,7 @@ import com.orbis.app.throttle.TcpFallback
 import com.orbis.app.throttle.ThrottleEngine
 import com.orbis.app.throttle.ThrottleSettings
 import com.orbis.app.usage.UsageProfileHolder
+import com.orbis.app.usage.VariantDiscovery
 import com.orbis.app.vpn.OrbisVpnService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -152,6 +153,7 @@ class OrbisAccessibilityService : AccessibilityService() {
         Log.i(TAG, "connected; observing=" + (serviceInfo?.packageNames?.joinToString() ?: "ALL"))
         ThrottleSettings.init(applicationContext)
         FocusSession.init(applicationContext)
+        observeInstalledBuilds()
 
         // The gate scales the delay by today's usage, but this service may be the
         // first thing to run in the process - the UI need never have opened. Seed
@@ -161,6 +163,28 @@ class OrbisAccessibilityService : AccessibilityService() {
         scope.launch {
             runCatching { UsageRepository.shared(applicationContext).refreshToday() }
             runCatching { EarnRepository.shared(applicationContext).refresh() }
+        }
+    }
+
+    /**
+     * Widens what this service observes to the builds of the target apps actually
+     * installed, mods included.
+     *
+     * The config XML can only name packages known when it was written, and a
+     * hardcoded list of mods ages badly - there are dozens, and the two this
+     * project knew about were found by looking at one phone.
+     * [VariantDiscovery] only registers a package that carries the app's own
+     * screen ids, so the boundary widens to things ORBIS can genuinely
+     * recognise, never to anything that merely opens the same links.
+     */
+    private fun observeInstalledBuilds() {
+        runCatching {
+            val observed = VariantDiscovery.run(applicationContext) + BrowserPackages.ALL
+            val info = serviceInfo ?: return
+            if (observed.size == info.packageNames?.size) return
+            info.packageNames = observed.toTypedArray()
+            serviceInfo = info
+            Log.i(TAG, "observing ${observed.size} packages")
         }
     }
 

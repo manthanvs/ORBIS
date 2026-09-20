@@ -53,17 +53,45 @@ enum class TargetApp(
     val allPackages: Set<String> get() = setOf(packageName) + variants
 
     companion object {
-        private val byPackage: Map<String, TargetApp> =
+        private val seeded: Map<String, TargetApp> =
             entries.flatMap { app -> app.allPackages.map { it to app } }.toMap()
+
+        /**
+         * Seeded with the known builds, extended at runtime by
+         * [VariantDiscovery] with whatever else is on the device.
+         *
+         * Copy-on-write behind a @Volatile: this map is read on the
+         * accessibility hot path several times a second and written perhaps
+         * once a session, so readers must never take a lock.
+         */
+        @Volatile
+        private var byPackage: Map<String, TargetApp> = seeded
 
         /** Resolves variants too: InstaPro is Instagram. */
         fun fromPackage(packageName: String): TargetApp? = byPackage[packageName]
 
         /** Every package ORBIS measures, variants included; filters the event stream. */
-        val packageNames: Set<String> = byPackage.keys
+        val packageNames: Set<String> get() = byPackage.keys
+
+        /** Records a build of [app] found on this device. */
+        @Synchronized
+        fun registerVariant(packageName: String, app: TargetApp) {
+            if (byPackage[packageName] == app) return
+            byPackage = byPackage + (packageName to app)
+        }
+
+        /** For tests, and for a device whose apps changed under us. */
+        @Synchronized
+        fun forgetDiscoveredVariants() {
+            byPackage = seeded
+        }
 
         /** The only apps the throttle engine may act on. */
         val throttleable: List<TargetApp> = entries.filter { it.throttled }
+
+        /** Every build of those apps known right now, discovered ones included. */
+        val throttleablePackages: Set<String>
+            get() = byPackage.filterValues { it.throttled }.keys
 
         fun isThrottleable(packageName: String): Boolean =
             fromPackage(packageName)?.throttled == true

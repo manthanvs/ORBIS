@@ -1,6 +1,7 @@
 package com.orbis.app.surface
 
 import com.orbis.app.usage.TargetApp
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Decides which [Surface] the user is on, from signals captured off the
@@ -62,7 +63,16 @@ object SurfaceDetector {
      * finds. The rules themselves stay here, so there is still one place that
      * decides what counts as a throttled surface.
      */
-    fun candidateIdsFor(packageName: String): List<String>? = CANDIDATE_IDS[packageName]
+    fun candidateIdsFor(packageName: String): List<String>? {
+        val ids = idsFor(TargetApp.fromPackage(packageName)) ?: return null
+        return qualified.getOrPut(packageName) { ids.qualifiedFor(packageName) }
+    }
+
+    /**
+     * One id per app, enough to recognise a build of it by its resources alone.
+     * [com.orbis.app.usage.VariantDiscovery] asks this of every candidate.
+     */
+    fun markerIdFor(app: TargetApp): String? = idsFor(app)?.first()
 
     private fun Set<String>.qualifiedFor(packageName: String): List<String> =
         map { "$packageName:id/$it" }
@@ -76,20 +86,15 @@ object SurfaceDetector {
     }
 
     /**
-     * Qualified with each package's *own* name, variants included. A repackaged
-     * client carries the same ids under its own package - Morphe's Shorts player
-     * is `app.morphe.android.youtube:id/reel_watch_player` - so asking the
-     * framework for the official name would never find it.
+     * Qualified with each package's *own* name. A repackaged client carries the
+     * same ids under its own package - Morphe's Shorts player is
+     * `app.morphe.android.youtube:id/reel_watch_player` - so asking the framework
+     * for the official name would never find it.
      *
-     * Precomputed because the service asks on every evaluation.
+     * Cached rather than precomputed, because builds are now discovered at
+     * runtime and the service asks on every evaluation.
      */
-    private val CANDIDATE_IDS: Map<String, List<String>> =
-        TargetApp.throttleable
-            .flatMap { app ->
-                val ids = idsFor(app) ?: return@flatMap emptyList()
-                app.allPackages.map { packageName -> packageName to ids.qualifiedFor(packageName) }
-            }
-            .toMap()
+    private val qualified = ConcurrentHashMap<String, List<String>>()
 
     /** True when [text] contains a short-video URL. Used for browser address bars. */
     fun isShortVideoUrl(text: String): Boolean = SHORT_VIDEO_URL.containsMatchIn(text)
