@@ -56,25 +56,10 @@ fun EarnScreen(
     state: EarnUiState,
     onStartFocus: () -> Unit,
     onCancelFocus: () -> Unit,
-    onStartCapture: () -> Unit,
-    onCancelCapture: (String?) -> Unit,
-    onSaveDeed: (String?, String) -> Unit,
     onDismissMessage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-
-    val hasCamera = remember {
-        context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
-    }
-    var cameraGranted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.CAMERA,
-            ) == PackageManager.PERMISSION_GRANTED
-        )
-    }
 
     // The manifest entry alone is not enough on 13+: the worker's own permission
     // check fails silently and the prompt simply never arrives.
@@ -89,17 +74,6 @@ fun EarnScreen(
             ) == PackageManager.PERMISSION_GRANTED
             if (!granted) notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-    }
-
-    val cameraLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        cameraGranted = granted
-        if (granted) onStartCapture()
-    }
-
-    if (state.capturing && hasCamera) {
-        CaptureSheet(onCancel = onCancelCapture, onSave = onSaveDeed, saving = state.saving)
     }
 
     LazyColumn(
@@ -136,21 +110,6 @@ fun EarnScreen(
                     onClick = onStartFocus,
                 )
             }
-        }
-
-        item {
-            ActionCard(
-                action = EarnAction.GOOD_DEED,
-                remainingUses = state.remainingUses[EarnAction.GOOD_DEED] ?: 0,
-                buttonText = "Log a good deed",
-                onClick = {
-                    if (cameraGranted || !hasCamera) {
-                        onStartCapture()
-                    } else {
-                        cameraLauncher.launch(Manifest.permission.CAMERA)
-                    }
-                },
-            )
         }
 
         item { StreakCard(streak = state.streak) }
@@ -374,16 +333,10 @@ private fun EarnScreenPreview() {
             state = EarnUiState(
                 remainingMillis = 12 * 60_000L,
                 streak = 4,
-                remainingUses = mapOf(
-                    EarnAction.FOCUS_SESSION to 4,
-                    EarnAction.GOOD_DEED to 1,
-                ),
+                remainingUses = mapOf(EarnAction.FOCUS_SESSION to 4),
             ),
             onStartFocus = {},
             onCancelFocus = {},
-            onStartCapture = {},
-            onCancelCapture = {},
-            onSaveDeed = { _, _ -> },
             onDismissMessage = {},
         )
     }

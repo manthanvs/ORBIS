@@ -75,7 +75,7 @@ fun SimpleHomeScreen(
     onGrantUsageAccess: () -> Unit,
     onEnableDetection: () -> Unit,
     onEnableThrottle: () -> Unit,
-    onOpenDeeds: () -> Unit,
+    onOpenEarn: () -> Unit,
     onOpenAbout: () -> Unit,
     onShowDetails: () -> Unit,
     modifier: Modifier = Modifier,
@@ -113,7 +113,7 @@ fun SimpleHomeScreen(
             streak = state.streak,
             earnedToday = state.earnedToday,
             clearTimeMillis = state.clearTimeMillis,
-            onOpenEarn = onOpenDeeds,
+            onOpenEarn = onOpenEarn,
         )
 
         OutlinedButton(onClick = onOpenAbout, modifier = Modifier.fillMaxWidth()) {
@@ -590,9 +590,9 @@ private fun HowItWorksCard() {
                 number = 4,
                 title = "It hands the time back to you",
                 body = "The minutes you did not spend scrolling show up on this " +
-                    "screen. And you can buy a feed back to full speed: a focus " +
-                    "session or a good deed earns clear time, and clear time turns " +
-                    "the drag off until it is spent.",
+                    "screen. And you can buy a feed back to full speed: finishing " +
+                    "a focus session earns clear time, and clear time turns the " +
+                    "drag off until it is spent.",
             )
         }
     }
@@ -794,7 +794,7 @@ private fun SimpleHomePreview() {
             onGrantUsageAccess = {},
             onEnableDetection = {},
             onEnableThrottle = {},
-            onOpenDeeds = {},
+            onOpenEarn = {},
             onOpenAbout = {},
             onShowDetails = {},
         )

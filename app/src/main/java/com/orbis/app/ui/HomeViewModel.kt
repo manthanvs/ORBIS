@@ -133,8 +133,7 @@ class HomeViewModel(
     )
 
     init {
-        // The streak is the earn loop's now - days on which clear time was earned,
-        // which includes a good deed but is no longer only one.
+        // Days on which clear time was earned, not days a deed was logged.
         viewModelScope.launch {
             earn.observeToday().collect { movements ->
                 val summary = earn.summarize(movements)

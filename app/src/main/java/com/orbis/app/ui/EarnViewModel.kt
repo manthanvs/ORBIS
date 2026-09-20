@@ -6,8 +6,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import com.orbis.app.data.DatabaseProvider
-import com.orbis.app.deed.GoodDeedRepository
 import com.orbis.app.earn.ClearTimeBalance
 import com.orbis.app.earn.ClearTimeHolder
 import com.orbis.app.earn.EarnAction
@@ -32,21 +30,17 @@ data class EarnUiState(
     val remainingUses: Map<EarnAction, Int> = emptyMap(),
     /** Non-null while a focus session is running. */
     val focusRemainingMillis: Long? = null,
-    val capturing: Boolean = false,
-    val saving: Boolean = false,
     val message: String? = null,
 )
 
 /**
  * The earn-back side quest.
  *
- * Owns the clear-time ledger, the focus session, and the good deed - which
- * survives as the highest-paying action rather than being the whole feature.
+ * Owns the clear-time ledger and the focus session that tops it up.
  */
 class EarnViewModel(
     private val appContext: Context,
     private val earn: EarnRepository,
-    private val deeds: GoodDeedRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(EarnUiState())
@@ -187,51 +181,6 @@ class EarnViewModel(
         }
     }
 
-    // ------------------------------------------------------------------ good deed
-
-    fun startCapture() = _state.update { it.copy(capturing = true, message = null) }
-
-    /** CameraX writes the file before the row exists, so a cancel must clean up. */
-    fun cancelCapture(photoPath: String?) {
-        viewModelScope.launch {
-            photoPath?.let { runCatching { deeds.discardPhoto(it) } }
-            _state.update { it.copy(capturing = false) }
-        }
-    }
-
-    fun saveDeed(photoPath: String?, note: String) {
-        viewModelScope.launch {
-            _state.update { it.copy(saving = true) }
-
-            val recorded = runCatching { deeds.record(photoPath, note) }
-            if (recorded.isFailure) {
-                // The photo stays on disk: it is the user's, and losing it to
-                // tidy up after our own failure is the worse outcome.
-                _state.update {
-                    it.copy(
-                        saving = false,
-                        capturing = false,
-                        message = "Could not save that. Your photo is safe.",
-                    )
-                }
-                return@launch
-            }
-
-            val awarded = runCatching { earn.award(EarnAction.GOOD_DEED) }.getOrDefault(0L)
-            _state.update {
-                it.copy(
-                    saving = false,
-                    capturing = false,
-                    message = if (awarded > 0L) {
-                        "Logged. ${awarded / 60_000L} clear minutes added."
-                    } else {
-                        "Logged - that is your deed for today."
-                    },
-                )
-            }
-        }
-    }
-
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
     companion object {
@@ -244,9 +193,6 @@ class EarnViewModel(
                     EarnViewModel(
                         appContext = applicationContext,
                         earn = EarnRepository.shared(applicationContext),
-                        deeds = GoodDeedRepository(
-                            DatabaseProvider.get(applicationContext).goodDeedDao()
-                        ),
                     )
                 }
             }

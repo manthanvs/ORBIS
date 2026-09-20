@@ -29,6 +29,7 @@ object DatabaseProvider {
                     OrbisDatabase.MIGRATION_1_2,
                     OrbisDatabase.MIGRATION_2_3,
                     OrbisDatabase.MIGRATION_3_4,
+                    OrbisDatabase.MIGRATION_4_5,
                 )
                 .build()
                 .also { instance = it }

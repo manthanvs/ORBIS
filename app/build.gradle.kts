@@ -65,10 +65,6 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
 
     // In-app capture for the good-deed log (Phase 5)
-    implementation(libs.androidx.camera.core)
-    implementation(libs.androidx.camera.camera2)
-    implementation(libs.androidx.camera.lifecycle)
-    implementation(libs.androidx.camera.view)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

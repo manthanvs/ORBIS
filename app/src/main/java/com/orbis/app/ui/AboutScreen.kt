@@ -163,8 +163,7 @@ fun AboutScreen(
                         "Snapchat and WhatsApp — kept for a rolling window, then deleted",
                     "Which of those four screens you are on right now, held in " +
                         "memory only and never written down",
-                    "Your good-deed log: the photo you took, an optional note, and " +
-                        "the date",
+                    "The clear time you earned and spent each day",
                 )
             )
             Paragraph("What ORBIS never sees:")
@@ -232,9 +231,8 @@ fun AboutScreen(
                 onClick = null,
             )
             Paragraph(
-                "Two more, both ordinary: notifications, for the once-a-day " +
-                    "good-deed nudge, and the camera, used only when you tap to " +
-                    "photograph a deed."
+                "One more, and it is ordinary: notifications, so ORBIS can tell " +
+                    "you when a focus session has finished and paid out."
             )
         }
 
@@ -306,24 +304,6 @@ fun AboutScreen(
             Paragraph(
                 "On a heavier-than-usual day the number simply goes to zero. It " +
                     "will not go negative and the app will not scold you for it."
-            )
-        }
-
-        CollapsibleCard(
-            title = "The good-deed challenge",
-            initiallyExpanded = false,
-        ) {
-            Paragraph(
-                "Taking time away from something works far better when there is " +
-                    "somewhere for it to go. Once a day ORBIS nudges you to do one " +
-                    "small good thing off your phone and log it with a photo."
-            )
-            Paragraph(
-                "The bar is meant to be low: washing up, helping a sibling with " +
-                    "homework, texting a friend who is having a bad week, picking " +
-                    "up litter on the way home. Log it and your streak grows. The " +
-                    "photos are for you — they are saved in the app's private " +
-                    "folder, are not shared anywhere, and never touch your gallery."
             )
         }
 

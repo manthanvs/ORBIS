@@ -4,7 +4,6 @@ import android.content.Context
 import com.orbis.app.data.ClearTimeDao
 import com.orbis.app.data.ClearTimeEntry
 import com.orbis.app.data.DatabaseProvider
-import com.orbis.app.deed.GoodDeedStreak
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -121,12 +120,12 @@ class EarnRepository(
     /**
      * Consecutive days on which something was earned.
      *
-     * Reuses the good-deed streak rules unchanged - "yesterday still counts, a
+     * Streak rules: "yesterday still counts, a
      * full missed day breaks it" is the same question, already pure and tested.
      */
     suspend fun streak(): Int {
         val dates = dao.earnedDates().mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }
-        return GoodDeedStreak.current(dates, today())
+        return EarnStreak.current(dates, today())
     }
 
     suspend fun prune(keepDays: Long = RETENTION_DAYS) {

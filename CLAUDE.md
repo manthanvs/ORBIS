@@ -35,11 +35,11 @@ What exists:
 - `com.orbis.app.usage` — `TargetApp`, `ForegroundTimeCalculator`, `UsageProfile`, `DurationFormatter`, `UsageProfileHolder`; plus `UsageStatsSource` and `UsageAccess`.
 - `com.orbis.app.surface` — `SurfaceDetector` (pure), `OrbisAccessibilityService`, `SurfaceMonitor`, `AccessibilityAccess`, `BrowserPackages`.
 - `com.orbis.app.throttle` — `ThrottleEngine` (pure, usage-scaled delay), `ThrottleSettings` (DataStore-backed).
-- `com.orbis.app.vpn` — `Ipv4`/`Ipv6` (pure packet parse/build), `OrbisVpnService` (UDP relay), `TunnelStats`.
+- `com.orbis.app.vpn` — `Ipv4`/`Ipv6` (pure packet parse/build), `OrbisVpnService` (UDP relay), `TcpProxy` (the TCP relay, pure JVM and loopback-tested), `TunnelStats`.
 - `com.orbis.app.data` — `UsageLog`/`UsageLogDao`/`OrbisDatabase`, `DatabaseProvider`, `UsageRepository`.
-- `com.orbis.app.dashboard` / `com.orbis.app.deed` — `ReclaimedTime` and `GoodDeedStreak` (both pure and unit-tested), `GoodDeedRepository`, `GoodDeedScheduler`, `DeedPhotoCapture`.
-- `com.orbis.app.earn` — `EarnAction`, `ClearTime` (pure, unit-tested), `ClearTimeHolder`, `EarnRepository`.
-- `com.orbis.app.ui` — `HomeScreen`/`HomeViewModel`, `ControlsScreen`, `EarnScreen`/`EarnViewModel`, `CaptureSheet`.
+- `com.orbis.app.dashboard` — `ReclaimedTime` (pure, unit-tested).
+- `com.orbis.app.earn` — `EarnAction`, `ClearTime`, `EarnStreak` (all pure and unit-tested), `ClearTimeHolder`, `EarnRepository`, `FocusSession`/`FocusSessionWorker`.
+- `com.orbis.app.ui` — `HomeScreen`/`SimpleHomeScreen`/`HomeViewModel`, `ControlsScreen`, `EarnScreen`/`EarnViewModel`, `AboutScreen`, `HowItWorksStrip`.
 
 Measured behaviour: Reels detected → tunnel up with a usage-scaled delay (400 ms at ~1 h of Instagram), `read 1138 / UDP fwd 1045 / TCP dropped 77`. Browsers are routed too, so `youtube.com/shorts` in Chrome or Edge is throttled.
 
@@ -80,7 +80,7 @@ a *single* uid during automatic throttling — Instagram's while Reels is on
 screen, YouTube's during Shorts. Seeing the old five-uid set means something has
 re-broadened the routing; see the routing invariant below.
 
-All five phases are built. The database is at **version 4**: `MIGRATION_1_2` adds `good_deed`, `MIGRATION_2_3` reorders `usage_log`'s unique index to lead with `date` and indexes `good_deed`, `MIGRATION_3_4` adds `clear_time` for the earn-back loop. There is deliberately **no `fallbackToDestructiveMigration`** — the usage history in this database is what the dashboard's baseline is computed from, so wiping it would silently destroy real data and reset "reclaimed time" to "still learning".
+The database is at **version 5**: `MIGRATION_1_2` adds `good_deed`, `MIGRATION_2_3` reorders `usage_log`'s unique index to lead with `date` and indexes `good_deed`, `MIGRATION_3_4` adds `clear_time` for the earn-back loop, and `MIGRATION_4_5` **drops `good_deed`** now the good-deed challenge is gone. There is deliberately **no `fallbackToDestructiveMigration`** — the usage history in this database is what the dashboard's baseline is computed from, so wiping it would silently destroy real data and reset "reclaimed time" to "still learning". Dropping `good_deed` is the one sanctioned exception, and it was verified against the real database on device: v4 → v5 with all 12 `usage_log` and 30 `clear_time` rows intact. Old migrations keep their original DDL — a database still at v1 has to walk the path everyone else walked.
 
 `ThrottleRule` is still not an entity: throttle intensity is derived from usage at runtime by `ThrottleEngine`, so there is nothing to persist until rules become user-editable.
 
@@ -93,8 +93,8 @@ composed:
 
 - **Home** (`HomeScreen` / `SimpleHomeScreen`) — live protection status,
   reclaimed-time hero, 7-day chart, today's per-app split, streak teaser.
-- **Earn** (`EarnScreen`) — the clear-time balance and the actions that top it
-  up. A `LazyColumn`, because the action list grows.
+- **Earn** (`EarnScreen`) — the clear-time balance and the focus session that
+  tops it up. A `LazyColumn`, because the action list is expected to grow again.
 - **Controls** (`ControlsScreen`) — detection state, the auto-throttle switch,
   the bounded tunnel test, and the packet diagnostics.
 - **About** (`AboutScreen`) — the explainer.
@@ -168,7 +168,7 @@ https://dl.google.com/dl/android/maven2/<group/path>/<ver>/<artifact>-<ver>.aar
 
 ## What ORBIS is
 
-A personal digital-wellbeing Android app: it measures which social apps the user actually overuses, applies proportional network-level friction to those apps, and redirects the reclaimed time toward a positively-framed dashboard and a small real-world good-deed challenge.
+A personal digital-wellbeing Android app: it measures which social apps the user actually overuses, applies proportional network-level friction to those apps, and redirects the reclaimed time toward a positively-framed dashboard and an earn-back loop that hands control back to the user.
 
 MVP scope is five pieces:
 
@@ -176,7 +176,7 @@ MVP scope is five pieces:
 2. **Usage profile** — rank Instagram / YouTube / Snapchat by time spent; drives both the dashboard and throttle intensity
 3. **VPN throttle engine** — local `VpnService` that delays traffic to target domains; everything else passes untouched
 4. **Dashboard** — reclaimed time today/this week, simple trend chart, positive framing only
-5. **Good deed challenge** — periodic prompt, in-app camera capture, local log with streak
+5. **Earn-back loop** — a verified focus session buys clear time, which turns the friction off until it is spent
 
 ## Hard invariants
 
@@ -199,7 +199,7 @@ These are design intent, not implementation detail. Do not relax them without as
 
 - **Cover the build the user actually opens.** Mods are the real apps on real phones. `VariantDiscovery` registers any installed package that both handles the app's links *and* carries its view ids; the hardcoded `TargetApp.variants` are only a seed, needed because a ColorOS-hidden app (InstaPro) cannot be discovered. Detection, routing, usage and the level all follow the discovered build.
 
-- **An app on TCP is left alone, not starved.** The relay drops TCP. When a routed app's traffic moves there, the throttle stops being friction and becomes breakage, so `TcpFallback` stands ORBIS down for that app (10 min, doubling to an hour). A missed throttle is a far smaller failure than a frozen app.
+- **An app on TCP is carried, not starved.** The packet relay drops TCP, so `OrbisVpnService` advertises `TcpProxy` on loopback via `Builder.setHttpProxy`: the routed app's TCP is terminated there, re-opened through a protected socket, and **paced** rather than dropped, so TCP's own flow control does the slowing. `TcpFallback` remains for traffic that ignores the proxy and can only be dropped — it stands ORBIS down for that app (10 min, doubling to an hour). A missed throttle is a far smaller failure than a frozen app.
 
 ## Performance invariants
 
@@ -300,19 +300,40 @@ adb shell dumpsys activity service com.orbis.app/.vpn.OrbisVpnService
 prints one line: `squeezing=`, `bytesIn=`, `policed=`, `udpFwd=`, `tcpDropped=`.
 Poll it every half-second while a feed plays to see the rhythm.
 
-**The honest limit:** an app that has moved to TCP gets no friction while it is
-stood down. The real fix is a TCP relay — a userspace TCP engine in the VPN —
-which the user chose not to build yet.
+### TCP is relayed, not dropped
 
-Measured 2026-09-19, level 5 on the two builds that matter here:
+`TcpProxy` closes the gap the stand-down valve used to paper over. The tunnel
+advertises it with `Builder.setHttpProxy(ProxyInfo.buildDirectProxy)`, so the
+routed app's own networking connects to it on loopback and its TCP never enters
+the tunnel. Each connection is terminated locally and re-opened through a
+`protect`ed socket - a relay in the same sense the UDP path is, one layer up.
+
+It **paces** rather than drops: the download direction is read only as fast as
+the ceiling allows, and TCP's flow control pushes that back to the sender. No
+retransmits, no sequence numbers, no userspace TCP stack. It speaks CONNECT
+only, since everything these apps do is HTTPS, and it is free of Android types
+so the whole thing is tested over real loopback sockets in `src/test`.
+
+Measured on CPH2585, level 5:
 
 - **InstaPro Reels: works.** 40 s with the tunnel up, `squeeze=4000/5000ms`,
   downloads held to 12-67 KB/s against 1-5 MB/s bursts before levels existed.
-- **Morphe Shorts: not reached.** It goes back to TCP within seconds, the valve
-  stands it down, and the tunnel stays stopped - Controls shows "left alone (on
-  TCP)" while the surface reads SHORTS. Stalls seen in Morphe during that state
-  are its own buffering, not ORBIS. It is the user's heaviest app (9 h 46 m a
-  week), so the TCP relay is what the coverage gap now rests on.
+- **Morphe Shorts: now reached.** 5.0 MB carried over the proxy with `udpFwd=0`
+  — all of it TCP — held at ~27 KB/s against a ~25 KB/s design target, with
+  stalls of 2.2-3.6 s and 9.2-15.0 s. It is the user's heaviest app
+  (9 h 46 m a week), and it was the one build levels never reached before.
+
+**The starvation check must count what the proxy carried.** It feeds on
+`bytesIn.get() + tcpProxy.bytesCarried()`, not the UDP counter alone. An app
+whose video now arrives over the proxy has a UDP byte count of nearly zero,
+while the phone's strict Private DNS keeps knocking on TCP 853 — DoT ignores an
+HTTP proxy, so those packets still reach the tunnel and still get dropped. Judged
+on UDP alone, a perfectly throttled app looks exactly like a starved one, and
+ORBIS stands down the very app it is successfully slowing.
+
+**What the valve still covers:** traffic that ignores the proxy setting
+altogether. For that there is nothing to carry, `bytesCarried` stays flat, the
+drops climb, and `TcpFallback` fires as before.
 
 ### The tunnel comes down on a watchdog, not on the next event
 
@@ -426,14 +447,14 @@ UsageStatsManager → UsageRepository → UsageProfile
                         v                                   v
               OrbisVpnService (VpnService)           Compose UI (stats)
 
-GoodDeedScheduler (WorkManager) → Notification → CameraCapture
-    → GoodDeedRepository (Room) → Dashboard
+FocusSession → FocusSessionWorker (WorkManager) → Notification
+    → EarnRepository (Room) → ClearTimeHolder → the gate
 ```
 
 - **UsageRepository** — wraps `UsageStatsManager`, exposes daily/weekly per-app time
 - **ThrottleEngine** — plain Kotlin; takes a `UsageProfile`, produces throttle rules (which domains, how much delay)
 - **OrbisVpnService** — extends `android.net.VpnService`; owns the TUN interface, matches destinations against the domain list, forwards immediately or after a delay
-- **GoodDeedScheduler** — `WorkManager` periodic job firing a notification
+- **FocusSessionWorker** — `WorkManager` job that pays out a finished focus session
 - All persistence in a single Room database
 
 **Testability constraint:** keep the ranking algorithm and domain-matching logic as pure Kotlin, free of Android framework types, so they're unit-testable in `src/test`. The test plan depends on this.
@@ -443,8 +464,7 @@ GoodDeedScheduler (WorkManager) → Notification → CameraCapture
 | Entity | Fields |
 |---|---|
 | `UsageLog` | `id`, `app`, `date` (ISO), `durationMillis` — one row per app per day |
-| `ThrottleRule` | `app` (PK), `domains` (comma-separated), `delayMillis`, `enabled` |
-| `GoodDeedEntry` | `id`, `timestamp`, `photoPath`, `note`, `completed` |
+| `ClearTimeEntry` | `id`, `timestampMillis`, `date` (ISO), `action`, `earnedMillis`, `spentMillis` |
 
 ### Permissions
 
@@ -453,10 +473,9 @@ GoodDeedScheduler (WorkManager) → Notification → CameraCapture
 | `PACKAGE_USAGE_STATS` | Done (Phase 1). See the gotcha below. |
 | `BIND_ACCESSIBILITY_SERVICE` | Done (Phase 2a). `flagReportViewIds` is mandatory or `viewIdResourceName` is always null and every rule silently stops matching. `packageNames` in the config is the privacy boundary. **adb can enable it** on this build — see the note below. |
 | VPN consent | Not a manifest permission — triggered by `VpnService.prepare()`. Declare the service with `BIND_VPN_SERVICE`. |
-| `POST_NOTIFICATIONS` | Runtime, Android 13+ |
-| `CAMERA` | Standard runtime permission |
+| `POST_NOTIFICATIONS` | Runtime, Android 13+. The VPN's foreground notice and the focus-session payout. |
 
-Save good-deed photos to app-private storage (`context.filesDir` / `getExternalFilesDir(null)`), never shared storage — this avoids broad storage permissions entirely.
+`CAMERA` is **gone**, with the good-deed challenge that needed it. If anything ever wants the camera again, note that removing CameraX also removed the only thing pulling in **appcompat** — the nav drawables' `?attr/colorControlNormal` stopped resolving and had to come out. Compose tints those icons anyway.
 
 `INTERNET` **is** required — corrected on device. The original reasoning ("the VPN intercepts other apps' traffic, it doesn't make calls of its own") holds for *interception* but not for *relaying*: the relay opens its own sockets to forward packets onward. Without it every `DatagramSocket()` throws `EPERM (Operation not permitted)`, the relay thread dies on its first packet, and the tunnel becomes a black hole that silently eats all traffic from the apps it captures — with no crash and nothing in logcat.
 
@@ -541,7 +560,7 @@ Build in this order. Verify each "Done when" before moving on. Commit after ever
 | 6 | ~~Surface-scoped routing~~ | **Done** — one app routed at a time, delay re-scales in place, manual tunnel self-stops after 30 s, browser short-video scales with the heaviest short-form app instead of being pinned at 120 ms |
 | 7 | ~~Day-to-day hardening~~ | **Done, verified on device** — modded clients (InstaPro, Morphe), VPN consent in onboarding, watchdog re-reads the screen, screen-off stand-down, per-activity usage pairing, focus sessions that survive the app closing |
 | 4 | ~~Dashboard~~ | **Done** — reclaimed time vs the user's own baseline, 7-day trend |
-| 5 | ~~Good deed challenge~~ | **Done** — WorkManager prompt → camera → Room entry → streak. The full loop still wants one manual run-through on a device. |
+| 5 | ~~Good deed challenge~~ | **Removed 2026-09-21.** It was the weakest part of the app: an unverifiable action, a camera permission and a Room table to support a daily photo nobody wanted to take. The earn-back loop carries the redirect on its own. `MIGRATION_4_5` drops the table; the streak survives as `EarnStreak`, counting days clear time was earned. |
 
 Phase 2 approach: domain matching **only** first, no delay, confirm connections are attributed to the right app. Add delay logic after. Explicitly test that WhatsApp traffic is never touched.
 

@@ -14,13 +14,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * a further version bump if rules ever become user-editable.
  */
 @Database(
-    entities = [UsageLog::class, GoodDeedEntry::class, ClearTimeEntry::class],
-    version = 4,
+    entities = [UsageLog::class, ClearTimeEntry::class],
+    version = 5,
     exportSchema = false,
 )
 abstract class OrbisDatabase : RoomDatabase() {
     abstract fun usageLogDao(): UsageLogDao
-    abstract fun goodDeedDao(): GoodDeedDao
     abstract fun clearTimeDao(): ClearTimeDao
 
     companion object {
@@ -32,8 +31,9 @@ abstract class OrbisDatabase : RoomDatabase() {
          * what the dashboard's baseline is computed from. Wiping it would reset
          * "reclaimed time" to "still learning" and silently destroy real data.
          *
-         * The DDL must match what Room generates for [GoodDeedEntry] exactly, or
-         * Room's schema validation throws on the next open.
+         * The DDL is kept verbatim even though `good_deed` is dropped again in
+         * [MIGRATION_4_5]: a database still at version 1 has to walk the same
+         * path everyone else walked, and a migration that has shipped is history.
          */
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -78,10 +78,7 @@ abstract class OrbisDatabase : RoomDatabase() {
         /**
          * Adds `clear_time` for the earn-back side quest.
          *
-         * Additive, and `good_deed` is deliberately left in place: the good deed
-         * survives as one of the earn actions, and even if it had not, the rule
-         * about never destroying a user's history applies to it as much as to
-         * `usage_log`.
+         * Additive; `good_deed` was still in place at this version.
          *
          * The DDL must match what Room generates for [ClearTimeEntry] exactly,
          * down to the index name, or schema validation throws on the next open.
@@ -101,6 +98,24 @@ abstract class OrbisDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS `index_clear_time_date` " +
                         "ON `clear_time` (`date`)"
                 )
+            }
+        }
+
+        /**
+         * Drops `good_deed`: the good-deed challenge is gone.
+         *
+         * The one deliberate exception to "never destroy the user's history".
+         * The rule exists because `usage_log` is what the dashboard's baseline is
+         * computed from, and `clear_time` is today's ledger - losing either
+         * changes what ORBIS tells the user. A table for a feature that no longer
+         * exists tells them nothing, and leaving it would keep its photo paths on
+         * file for no reason. The photos themselves are left alone: they are the
+         * user's, and this migration is not the place to delete somebody's
+         * pictures.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `good_deed`")
             }
         }
     }

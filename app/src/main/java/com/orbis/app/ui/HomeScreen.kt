@@ -88,7 +88,7 @@ fun HomeScreen(
     onGrantUsageAccess: () -> Unit,
     onEnableDetection: () -> Unit,
     onEnableThrottle: () -> Unit,
-    onOpenDeeds: () -> Unit,
+    onOpenEarn: () -> Unit,
     onShowSimple: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -158,7 +158,7 @@ fun HomeScreen(
             streak = state.streak,
             earnedToday = state.earnedToday,
             clearTimeMillis = state.clearTimeMillis,
-            onOpenEarn = onOpenDeeds,
+            onOpenEarn = onOpenEarn,
         )
 
         Spacer(Modifier.height(8.dp))
@@ -794,7 +794,7 @@ private fun StreakTeaser(
                     text = if (earnedToday) {
                         "Earned today. Streak safe."
                     } else {
-                        "A focus session or a good deed keeps it going."
+                        "A focus session keeps it going."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -853,7 +853,7 @@ private fun HomeScreenPreview() {
             onGrantUsageAccess = {},
             onEnableDetection = {},
             onEnableThrottle = {},
-            onOpenDeeds = {},
+            onOpenEarn = {},
             onShowSimple = {},
         )
     }

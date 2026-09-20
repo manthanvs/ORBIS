@@ -73,7 +73,7 @@ class FocusSessionWorker(
             context,
             REQUEST_CODE,
             Intent(context, MainActivity::class.java)
-                .setAction(MainActivity.ACTION_GOOD_DEED)
+                .setAction(MainActivity.ACTION_EARN)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )

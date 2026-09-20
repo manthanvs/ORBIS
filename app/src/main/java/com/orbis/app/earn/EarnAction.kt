@@ -28,18 +28,6 @@ enum class EarnAction(
         rewardMillis = 5 * 60_000L,
         dailyLimit = 6,
     ),
-
-    /**
-     * The original good deed, kept as the highest-paying action and capped at one
-     * a day. It is the only one ORBIS cannot verify, which is exactly why it pays
-     * most and can be done least: the honesty is the point of it.
-     */
-    GOOD_DEED(
-        displayName = "Good deed",
-        description = "Do something small and real for someone else.",
-        rewardMillis = 10 * 60_000L,
-        dailyLimit = 1,
-    ),
     ;
 
     companion object {

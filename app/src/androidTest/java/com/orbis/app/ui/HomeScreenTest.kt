@@ -67,7 +67,7 @@ class HomeScreenTest {
                     onGrantUsageAccess = {},
                     onEnableDetection = {},
                     onEnableThrottle = {},
-                    onOpenDeeds = {},
+                    onOpenEarn = {},
                     onShowSimple = {},
                 )
             }

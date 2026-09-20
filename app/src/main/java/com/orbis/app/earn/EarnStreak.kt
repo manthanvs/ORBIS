@@ -1,14 +1,14 @@
-package com.orbis.app.deed
+package com.orbis.app.earn
 
 import java.time.LocalDate
 
 /**
- * Counts consecutive days containing at least one completed good deed.
+ * Counts consecutive days containing at least one completed earned day.
  *
  * Pure, so the awkward parts — today not yet done, gaps, several deeds in one day —
  * are testable without a device or a clock.
  */
-object GoodDeedStreak {
+object EarnStreak {
 
     /**
      * @param completedDates the dates of completed deeds, in any order, duplicates allowed.

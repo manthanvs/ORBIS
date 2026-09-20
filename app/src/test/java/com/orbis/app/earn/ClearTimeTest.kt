@@ -63,14 +63,6 @@ class ClearTimeTest {
     }
 
     @Test
-    fun `an action runs out of uses independently of the others`() {
-        val deedDone = listOf(earn(EarnAction.GOOD_DEED))
-
-        assertFalse(ClearTime.canEarn(EarnAction.GOOD_DEED, deedDone))
-        assertTrue(ClearTime.canEarn(EarnAction.FOCUS_SESSION, deedDone))
-    }
-
-    @Test
     fun `remaining uses counts down and stops at zero`() {
         val action = EarnAction.FOCUS_SESSION
 
@@ -111,7 +103,7 @@ class ClearTimeTest {
 
     @Test
     fun `order of movements does not matter`() {
-        val forwards = listOf(earn(EarnAction.GOOD_DEED), spend(60_000L))
+        val forwards = listOf(earn(EarnAction.FOCUS_SESSION), spend(60_000L))
         val backwards = forwards.reversed()
 
         assertEquals(

@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.orbis.app.deed.GoodDeedScheduler
 import com.orbis.app.settings.UiSettings
 import com.orbis.app.surface.AccessibilityAccess
 import com.orbis.app.throttle.ThrottleEngine
@@ -55,22 +54,21 @@ import java.time.LocalDate
 class MainActivity : ComponentActivity() {
 
     companion object {
-        /** Set by the good-deed notification so the app opens on that tab. */
-        const val ACTION_GOOD_DEED = "com.orbis.app.action.GOOD_DEED"
+        /** Set by the focus-session notification so the app opens on that tab. */
+        const val ACTION_EARN = "com.orbis.app.action.EARN"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThrottleSettings.init(this)
         UiSettings.init(this)
-        GoodDeedScheduler.schedule(this)
         enableEdgeToEdge()
 
-        val openOnDeeds = intent?.action == ACTION_GOOD_DEED
+        val openOnEarn = intent?.action == ACTION_EARN
 
         setContent {
             OrbisTheme {
-                OrbisApp(openOnDeeds = openOnDeeds)
+                OrbisApp(openOnEarn = openOnEarn)
             }
         }
     }
@@ -82,8 +80,8 @@ private enum class Destination(
 ) {
     HOME("Home", R.drawable.ic_nav_home),
 
-    // "Earn", not "Deeds": the good deed is one of the actions now, not the whole
-    // feature, and the tab has to name what the user comes here to do.
+    // Named for what the user comes here to do: buy their feed back to full
+    // speed, by finishing a focus session.
     EARN("Earn", R.drawable.ic_nav_deeds),
     CONTROLS("Controls", R.drawable.ic_nav_controls),
 
@@ -94,7 +92,7 @@ private enum class Destination(
 }
 
 @Composable
-private fun OrbisApp(openOnDeeds: Boolean) {
+private fun OrbisApp(openOnEarn: Boolean) {
     val context = LocalContext.current
 
     val homeViewModel: HomeViewModel = viewModel(factory = HomeViewModel.factory(context))
@@ -105,7 +103,7 @@ private fun OrbisApp(openOnDeeds: Boolean) {
     val simpleMode by UiSettings.simpleMode.collectAsStateWithLifecycle()
 
     var destination by rememberSaveable {
-        mutableStateOf(if (openOnDeeds) Destination.EARN else Destination.HOME)
+        mutableStateOf(if (openOnEarn) Destination.EARN else Destination.HOME)
     }
 
     // VpnService.prepare() returns an Intent the first time; consent is a system
@@ -196,7 +194,7 @@ private fun OrbisApp(openOnDeeds: Boolean) {
                     protection = protection,
                     simpleMode = simpleMode,
                     onEnableThrottle = turnOnAutoThrottle,
-                    onOpenDeeds = { destination = Destination.EARN },
+                    onOpenEarn = { destination = Destination.EARN },
                     onOpenAbout = { destination = Destination.ABOUT },
                     onSimpleModeChange = UiSettings::setSimpleMode,
                     modifier = contentModifier,
@@ -274,7 +272,7 @@ private fun HomeRoute(
     protection: ProtectionUiState,
     simpleMode: Boolean,
     onEnableThrottle: () -> Unit,
-    onOpenDeeds: () -> Unit,
+    onOpenEarn: () -> Unit,
     onOpenAbout: () -> Unit,
     onSimpleModeChange: (Boolean) -> Unit,
     modifier: Modifier,
@@ -293,7 +291,7 @@ private fun HomeRoute(
             onGrantUsageAccess = grantUsageAccess,
             onEnableDetection = enableDetection,
             onEnableThrottle = enableThrottle,
-            onOpenDeeds = onOpenDeeds,
+            onOpenEarn = onOpenEarn,
             onOpenAbout = onOpenAbout,
             onShowDetails = { onSimpleModeChange(false) },
             modifier = modifier,
@@ -306,7 +304,7 @@ private fun HomeRoute(
             onGrantUsageAccess = grantUsageAccess,
             onEnableDetection = enableDetection,
             onEnableThrottle = enableThrottle,
-            onOpenDeeds = onOpenDeeds,
+            onOpenEarn = onOpenEarn,
             onShowSimple = { onSimpleModeChange(true) },
             modifier = modifier,
         )
@@ -356,9 +354,6 @@ private fun EarnRoute(modifier: Modifier) {
         state = state,
         onStartFocus = viewModel::startFocus,
         onCancelFocus = viewModel::cancelFocus,
-        onStartCapture = viewModel::startCapture,
-        onCancelCapture = viewModel::cancelCapture,
-        onSaveDeed = viewModel::saveDeed,
         onDismissMessage = viewModel::dismissMessage,
         modifier = modifier,
     )

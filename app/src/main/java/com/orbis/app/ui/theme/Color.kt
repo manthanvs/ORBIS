@@ -10,7 +10,7 @@ import androidx.compose.ui.graphics.Color
  * fine" where red or amber would read as a warning - the app must never look
  * like it is telling the user off.
  *
- * Amber is reserved for the good-deed streak, so the one warm colour on screen
+ * Amber is reserved for the earning streak, so the one warm colour on screen
  * always means the same thing: something the user earned.
  */
 
