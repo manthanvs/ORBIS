@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.ProxyInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -168,6 +169,9 @@ class OrbisVpnService : VpnService() {
     /** Polices downloads to the pulse's ceiling. Selector thread only. */
     private val inboundBucket = TokenBucket()
 
+    /** Carries the routed app's TCP, which this relay can only drop. */
+    private var tcpProxy: TcpProxy? = null
+
     @Volatile
     private var active = false
 
@@ -282,6 +286,18 @@ class OrbisVpnService : VpnService() {
     private fun start(route: List<String>) {
         if (active) return
 
+        // Started before establish(): the proxy's port has to go into the
+        // tunnel's own config, and Android fixes that at establish() time.
+        val proxy = runCatching {
+            TcpProxy(
+                protect = { socket -> protect(socket) },
+                ceilingBytesPerSecond = {
+                    friction.downloadCeilingAt(pulseElapsedMillis(System.nanoTime()))
+                },
+            ).also { it.start() }
+        }.getOrNull()
+        tcpProxy = proxy
+
         val builder = Builder()
             .setSession(SESSION)
             .addAddress(TUNNEL_ADDRESS_V4, 32)
@@ -291,6 +307,15 @@ class OrbisVpnService : VpnService() {
             // immediately and forever, so the relay spins at 100% CPU, forwards
             // nothing, and silently blackholes every routed app.
             .setBlocking(true)
+
+        // The routed app's TCP goes to the proxy on loopback instead of into the
+        // tunnel, where it would only be dropped. Apps that ignore the proxy
+        // still have their TCP dropped, and the safety valve still covers them.
+        if (proxy != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching {
+                builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", proxy.port))
+            }.onFailure { status = "proxy setup failed: ${it.message}" }
+        }
 
         // Claiming IPv6 as well. Omitting it makes Android mark ::/0 unreachable
         // for the routed apps, which kills most of their traffic outright.
@@ -956,6 +981,9 @@ class OrbisVpnService : VpnService() {
         runCatching { selector?.close() }
         selector = null
 
+        runCatching { tcpProxy?.stop() }
+        tcpProxy = null
+
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
 
         status = "stopped (read=${packetsRead.get()}, udp=${udpPacketsForwarded.get()}, " +
@@ -979,7 +1007,7 @@ class OrbisVpnService : VpnService() {
                 "squeezing=${s.squeezing} squeeze=${s.squeezeMillis}/${s.pulsePeriodMillis}ms " +
                 "delay=${s.delayMillis}ms bytesIn=${s.bytesIn} policed=${s.packetsPoliced} " +
                 "udpFwd=${s.udpForwarded} tcpDropped=${s.tcpDropped} shed=${s.packetsDropped} " +
-                "flows=${s.activeFlows} status=${s.status}"
+                "flows=${s.activeFlows} tcpCarried=${s.tcpCarried} status=${s.status}"
         )
     }
 
@@ -993,8 +1021,9 @@ class OrbisVpnService : VpnService() {
             activeFlows = flowsV4.size + flowsV6.size,
             delayMillis = friction.delayMillis,
             routed = routedNow,
-            bytesIn = bytesIn.get(),
-            packetsPoliced = packetsPoliced.get(),
+            bytesIn = bytesIn.get() + (tcpProxy?.bytesCarried() ?: 0L),
+            packetsPoliced = packetsPoliced.get() + (tcpProxy?.chunksPaced() ?: 0L),
+            tcpCarried = tcpProxy?.bytesCarried() ?: 0L,
             squeezing = active && friction.squeezingAt(pulseElapsedMillis(System.nanoTime())),
             squeezeMillis = friction.squeezeMillis,
             pulsePeriodMillis = friction.periodMillis,
@@ -1207,8 +1236,10 @@ data class TunnelStats(
     val routed: List<String> = emptyList(),
     /** Download bytes delivered to the routed app. */
     val bytesIn: Long = 0L,
-    /** Download packets the squeeze dropped. */
+    /** Download packets the squeeze dropped, or chunks it paced. */
     val packetsPoliced: Long = 0L,
+    /** Download bytes carried over the TCP proxy rather than dropped. */
+    val tcpCarried: Long = 0L,
     /** Whether the pulse is squeezing at this moment. */
     val squeezing: Boolean = false,
     val squeezeMillis: Long = 0L,
