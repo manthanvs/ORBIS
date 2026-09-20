@@ -184,7 +184,9 @@ These are design intent, not implementation detail. Do not relax them without as
 
 - **The user always holds the lever.** ORBIS slows a feed; it never blocks one, and clear time earned through `EarnAction` buys it back to full speed. Anything that removes the option — a hard block, a lockout, a penalty that cannot be worked off — breaks the thesis, because losing an option provokes more pushback than the habit does. Credit **expires nightly** and is **capped daily**: a bankable balance turns a daily trade into a savings account, and an uncapped one rewards whoever grinds hardest.
 - **The TUN interface must be released on stop.** A VPN service that leaks its interface throttles the user's phone after the app is closed.
-- **Friction pulses; it never cuts off.** Every 5 s the feed's downloads are squeezed to a ~16 KB/s trickle for 1.5–3 s (longer as today's short-form minutes add up, across *all* apps), then released to a capped rate. Never zero, never a block: a feed that feels broken gets the app uninstalled. See "The pulse" below for why a constant delay was abandoned.
+- **Friction pulses; it never cuts off.** Every 5 s the feed's downloads are squeezed to a ~16 KB/s trickle, then released to a capped gap. How long depends on `ThrottleLevel` (1 Nudge 1.5 s → 5 Immune 4 s of every 5, gap 600 → 60 KB/s), chosen by today's short-form minutes across *all* apps and floored by the last 7 days' average so midnight does not reset a settled habit. Never zero, never a block: a feed that feels broken gets the app uninstalled.
+
+- **Cover the build the user actually opens.** Mods are the real apps on real phones. `VariantDiscovery` registers any installed package that both handles the app's links *and* carries its view ids; the hardcoded `TargetApp.variants` are only a seed, needed because a ColorOS-hidden app (InstaPro) cannot be discovered. Detection, routing, usage and the level all follow the discovered build.
 
 - **An app on TCP is left alone, not starved.** The relay drops TCP. When a routed app's traffic moves there, the throttle stops being friction and becomes breakage, so `TcpFallback` stands ORBIS down for that app (10 min, doubling to an hour). A missed throttle is a far smaller failure than a frozen app.
 
@@ -290,6 +292,16 @@ Poll it every half-second while a feed plays to see the rhythm.
 **The honest limit:** an app that has moved to TCP gets no friction while it is
 stood down. The real fix is a TCP relay — a userspace TCP engine in the VPN —
 which the user chose not to build yet.
+
+Measured 2026-09-19, level 5 on the two builds that matter here:
+
+- **InstaPro Reels: works.** 40 s with the tunnel up, `squeeze=4000/5000ms`,
+  downloads held to 12-67 KB/s against 1-5 MB/s bursts before levels existed.
+- **Morphe Shorts: not reached.** It goes back to TCP within seconds, the valve
+  stands it down, and the tunnel stays stopped - Controls shows "left alone (on
+  TCP)" while the surface reads SHORTS. Stalls seen in Morphe during that state
+  are its own buffering, not ORBIS. It is the user's heaviest app (9 h 46 m a
+  week), so the TCP relay is what the coverage gap now rests on.
 
 ### The tunnel comes down on a watchdog, not on the next event
 
