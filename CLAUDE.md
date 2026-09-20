@@ -318,10 +318,12 @@ Measured on CPH2585, level 5:
 
 - **InstaPro Reels: works.** 40 s with the tunnel up, `squeeze=4000/5000ms`,
   downloads held to 12-67 KB/s against 1-5 MB/s bursts before levels existed.
-- **Morphe Shorts: now reached.** 5.0 MB carried over the proxy with `udpFwd=0`
-  — all of it TCP — held at ~27 KB/s against a ~25 KB/s design target, with
-  stalls of 2.2-3.6 s and 9.2-15.0 s. It is the user's heaviest app
-  (9 h 46 m a week), and it was the one build levels never reached before.
+- **Morphe Shorts: now reached.** Measured 2026-09-21 over a 178 s session of
+  real scrolling, sampled every 2 s: **5.69 MB carried at 28.3 KB/s**, tunnel up
+  for all 90 samples, `routed=app.morphe.android.youtube` and nothing else,
+  `squeezing` toggling with the pulse. `udpFwd` stayed at **3 packets for the
+  whole session** - Morphe's video is 100% TCP, which is exactly why it was
+  untouchable before the proxy. It is the user's heaviest app (9 h 46 m a week).
 
 **The starvation check must count what the proxy carried.** It feeds on
 `bytesIn.get() + tcpProxy.bytesCarried()`, not the UDP counter alone. An app
@@ -334,6 +336,14 @@ ORBIS stands down the very app it is successfully slowing.
 **What the valve still covers:** traffic that ignores the proxy setting
 altogether. For that there is nothing to carry, `bytesCarried` stays flat, the
 drops climb, and `TcpFallback` fires as before.
+
+**How close the valve actually comes to misfiring:** not very, on this phone.
+Across that 178 s Morphe session `tcpDropped` went 8 → 20, i.e. 0.07/s, and the
+worst 6 s burst was **6 drops against a threshold of 12**. So the false
+stand-down is a real failure mode but not a frequent one - the fix is insurance
+against a burstier pattern (a Wi-Fi/5G switch, or an app opening many non-proxy
+TCP connections), and it has not yet been observed rescuing a live session. If
+the thresholds are ever retuned, this is the measurement to re-take first.
 
 ### The tunnel comes down on a watchdog, not on the next event
 
