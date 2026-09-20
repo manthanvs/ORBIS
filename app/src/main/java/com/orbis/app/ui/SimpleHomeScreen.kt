@@ -104,6 +104,8 @@ fun SimpleHomeScreen(
             WhereItWentCard(state.profile)
         }
 
+        LevelCard(state.level)
+
         HowItWorksCard()
         SlowedOrNotCard()
 

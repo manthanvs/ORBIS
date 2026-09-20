@@ -12,7 +12,7 @@ import org.junit.Test
 class ThrottleEngineTest {
 
     private val heavyInstagram = UsageProfile.from(
-        mapOf("com.instagram.android" to 60 * 60_000L) // 60 minutes
+        mapOf("com.instagram.android" to 180 * 60_000L) // 180 minutes: top of the ladder
     )
     private val lightInstagram = UsageProfile.from(
         mapOf("com.instagram.android" to 60_000L) // 1 minute
@@ -167,7 +167,7 @@ class ThrottleEngineTest {
 
     @Test
     fun `morphe shorts scale with combined youtube time`() {
-        val heavyMorphe = UsageProfile.from(mapOf("app.morphe.android.youtube" to 60 * 60_000L))
+        val heavyMorphe = UsageProfile.from(mapOf("app.morphe.android.youtube" to 180 * 60_000L))
 
         assertEquals(
             ThrottleEngine.MAX_DELAY_MILLIS,

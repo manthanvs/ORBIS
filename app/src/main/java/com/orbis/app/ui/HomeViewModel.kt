@@ -12,9 +12,12 @@ import com.orbis.app.data.UsageRepository
 import com.orbis.app.earn.ClearTimeHolder
 import com.orbis.app.earn.EarnRepository
 import com.orbis.app.surface.DetectedSurface
+import com.orbis.app.throttle.ThrottleEngine
+import com.orbis.app.throttle.ThrottleLevel
 import com.orbis.app.surface.SurfaceMonitor
 import com.orbis.app.throttle.ThrottleSettings
 import com.orbis.app.usage.UsageProfile
+import com.orbis.app.usage.UsageProfileHolder
 import com.orbis.app.vpn.OrbisVpnService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -74,6 +77,8 @@ data class HomeUiState(
     val earnedToday: Boolean = false,
     /** Clear time left today, live. */
     val clearTimeMillis: Long = 0L,
+    /** How hard ORBIS is pushing, given today and the recent average. */
+    val level: ThrottleLevel = ThrottleLevel.NUDGE,
     val error: String? = null,
 )
 
@@ -180,8 +185,15 @@ class HomeViewModel(
                 val history = usage.dailyHistory(ReclaimedTime.BASELINE_WINDOW_DAYS + 1)
                 profile to ReclaimedTime.summarize(history, LocalDate.now())
             }.onSuccess { (profile, summary) ->
+                val level = ThrottleEngine.levelFor(profile, UsageProfileHolder.baselineMillis.value)
                 _state.update {
-                    it.copy(loading = false, profile = profile, summary = summary, error = null)
+                    it.copy(
+                        loading = false,
+                        profile = profile,
+                        summary = summary,
+                        level = level,
+                        error = null,
+                    )
                 }
             }.onFailure { throwable ->
                 _state.update {

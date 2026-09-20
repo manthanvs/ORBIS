@@ -20,7 +20,18 @@ object UsageProfileHolder {
     private val _profile = MutableStateFlow(UsageProfile.EMPTY)
     val profile: StateFlow<UsageProfile> = _profile.asStateFlow()
 
-    fun publish(profile: UsageProfile) {
+    private val _baselineMillis = MutableStateFlow(0L)
+
+    /**
+     * The recent daily short-form average, which floors the throttle level.
+     *
+     * Without it every midnight would drop a settled habit back to level 1 and
+     * spend the morning nudging someone who is well past nudging.
+     */
+    val baselineMillis: StateFlow<Long> = _baselineMillis.asStateFlow()
+
+    fun publish(profile: UsageProfile, baselineMillis: Long = _baselineMillis.value) {
         _profile.value = profile
+        _baselineMillis.value = baselineMillis
     }
 }

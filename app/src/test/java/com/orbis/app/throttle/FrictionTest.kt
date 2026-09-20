@@ -120,7 +120,7 @@ class FrictionTest {
         val light = ThrottleEngine.ruleFor(Surface.REELS, UsageProfile.EMPTY).friction
         val heavy = ThrottleEngine.ruleFor(
             Surface.REELS,
-            minutes("com.instagram.android" to 90),
+            minutes("com.instagram.android" to 180),
         ).friction
 
         assertEquals(ThrottleEngine.MIN_SQUEEZE_MILLIS, light.squeezeMillis)
@@ -132,7 +132,7 @@ class FrictionTest {
         // Measured on device: two hours of Morphe, six minutes of Snapchat - and
         // Spotlight got the lightest friction there is. The habit is the user's.
         val profile = minutes(
-            "app.morphe.android.youtube" to 120,
+            "app.morphe.android.youtube" to 180,
             "com.snapchat.android" to 6,
         )
 
@@ -176,7 +176,7 @@ class FrictionTest {
         val light = ThrottleEngine.ruleFor(Surface.REELS, UsageProfile.EMPTY).friction
         val heavy = ThrottleEngine.ruleFor(
             Surface.REELS,
-            minutes("com.instagram.android" to 90),
+            minutes("com.instagram.android" to 180),
         ).friction
 
         assertEquals(ThrottleEngine.LIGHT_OPEN_BYTES_PER_SECOND, light.openBytesPerSecond)

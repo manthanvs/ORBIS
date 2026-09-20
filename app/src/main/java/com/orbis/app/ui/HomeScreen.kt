@@ -49,6 +49,7 @@ import com.orbis.app.dashboard.DayTotal
 import com.orbis.app.dashboard.ReclaimedSummary
 import com.orbis.app.surface.DetectedSurface
 import com.orbis.app.surface.Surface
+import com.orbis.app.throttle.ThrottleLevel
 import com.orbis.app.ui.theme.OrbisTheme
 import com.orbis.app.usage.AppUsage
 import com.orbis.app.usage.DurationFormatter
@@ -148,6 +149,8 @@ fun HomeScreen(
                 TodayOnlyCard(summary.todayMillis)
             }
         }
+
+        LevelCard(state.level)
 
         TodaySplitCard(state.profile)
 
@@ -713,6 +716,44 @@ private fun ProtectedBadge() {
             .background(MaterialTheme.colorScheme.secondaryContainer)
             .padding(horizontal = 6.dp, vertical = 2.dp),
     )
+}
+
+// --------------------------------------------------------------------- level
+
+/**
+ * The ladder, named. Shared with [SimpleHomeScreen] - the same one line answers
+ * "why is it barely doing anything today?" on either screen.
+ */
+@Composable
+internal fun LevelCard(level: ThrottleLevel) {
+    Card {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Level ${level.number} of ${ThrottleLevel.entries.size} · ${level.label}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = if (level == ThrottleLevel.IMMUNE) {
+                    "The top of the ladder. Short-form stalls for " +
+                        "${seconds(level.friction.squeezeMillis)}s of every " +
+                        "${seconds(level.friction.periodMillis)}s and never gets going in " +
+                        "between — by design, it is not worth opening any more."
+                } else {
+                    "Feeds stall ${seconds(level.friction.squeezeMillis)}s of every " +
+                        "${seconds(level.friction.periodMillis)}s. The level climbs with your " +
+                        "short-video time and eases off as it falls."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 // -------------------------------------------------------------------- streak

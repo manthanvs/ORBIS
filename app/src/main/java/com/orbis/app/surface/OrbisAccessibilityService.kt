@@ -277,7 +277,11 @@ class OrbisAccessibilityService : AccessibilityService() {
 
         // Real usage, not EMPTY: this is what makes the throttle adaptive.
         val friction = ThrottleEngine
-            .ruleFor(surface, UsageProfileHolder.profile.value)
+            .ruleFor(
+                surface,
+                UsageProfileHolder.profile.value,
+                UsageProfileHolder.baselineMillis.value,
+            )
             .friction
 
         // Compared against the service rather than a local copy, so a tunnel the
