@@ -18,6 +18,12 @@ class ForegroundTimeCalculatorTest {
     private fun background(pkg: String, at: Long) =
         UsageEventRecord(pkg, UsageEventType.BACKGROUND, at)
 
+    private fun resumed(pkg: String, activity: String, at: Long) =
+        UsageEventRecord(pkg, UsageEventType.FOREGROUND, at, activity)
+
+    private fun paused(pkg: String, activity: String, at: Long) =
+        UsageEventRecord(pkg, UsageEventType.BACKGROUND, at, activity)
+
     private fun totals(vararg events: UsageEventRecord) =
         ForegroundTimeCalculator.totalsByPackage(events.toList(), WINDOW_START, WINDOW_END)
 
@@ -114,6 +120,69 @@ class ForegroundTimeCalculatorTest {
         )
 
         assertTrue(result.isEmpty())
+    }
+
+    // --- Several activities of one app at once. Measured on CPH2585, where the
+    // --- per-package pairing turned 28 minutes of YouTube into 19 hours.
+
+    @Test
+    fun `two activities resumed together count once, until the last one pauses`() {
+        // InstaPro opens through LauncherActivity and PinLockActivity together.
+        val result = totals(
+            resumed(INSTAGRAM, "Launcher", 10_000L),
+            resumed(INSTAGRAM, "PinLock", 10_100L),
+            paused(INSTAGRAM, "Launcher", 10_200L),
+            paused(INSTAGRAM, "PinLock", 40_000L),
+        )
+
+        assertEquals(30_000L, result[INSTAGRAM])
+    }
+
+    @Test
+    fun `an unmatched pause mid-window is not credited from the window start`() {
+        // The exact failure: a trampoline's pause met no open session and was
+        // credited from midnight.
+        val result = totals(
+            resumed(INSTAGRAM, "Main", 10_000L),
+            paused(INSTAGRAM, "Main", 20_000L),
+            paused(INSTAGRAM, "UrlTrampoline", 90_000L),
+        )
+
+        assertEquals(10_000L, result[INSTAGRAM])
+    }
+
+    @Test
+    fun `an unmatched pause as the first event still counts from the window start`() {
+        // The one case the old rule was for: open since before midnight.
+        val result = totals(
+            paused(INSTAGRAM, "Main", 25_000L),
+        )
+
+        assertEquals(24_000L, result[INSTAGRAM])
+    }
+
+    @Test
+    fun `activities paused out of order still close the session correctly`() {
+        val result = totals(
+            resumed(INSTAGRAM, "A", 10_000L),
+            resumed(INSTAGRAM, "B", 20_000L),
+            paused(INSTAGRAM, "A", 30_000L),
+            resumed(INSTAGRAM, "A", 35_000L),
+            paused(INSTAGRAM, "B", 40_000L),
+            paused(INSTAGRAM, "A", 50_000L),
+        )
+
+        assertEquals(40_000L, result[INSTAGRAM])
+    }
+
+    @Test
+    fun `no app is ever credited more than the window`() {
+        val result = totals(
+            paused(INSTAGRAM, "Main", WINDOW_END),
+            resumed(INSTAGRAM, "Main", WINDOW_START),
+        )
+
+        assertTrue((result[INSTAGRAM] ?: 0L) <= WINDOW_END - WINDOW_START)
     }
 
     @Test

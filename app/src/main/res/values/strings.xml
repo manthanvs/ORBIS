@@ -1,5 +1,7 @@
 <resources>
-    <string name="app_name">ORBIS - Optimized Responsible Browsing &amp; Intervention System</string>
+    <!-- Short on purpose: the launcher, the VPN consent dialog and the Settings
+         lists all show this, and the full name was truncated in every one. -->
+    <string name="app_name">ORBIS</string>
 
     <string name="accessibility_service_label">ORBIS surface detection</string>
     <string name="accessibility_service_summary">Detects short-form video feeds so only those can be slowed down</string>
@@ -9,8 +11,13 @@
 
     <string name="deed_channel_name">Good deed</string>
     <string name="deed_notification_title">One small good thing?</string>
-    <string name="deed_notification_text">Do something kind today and log it — a photo is enough.</string>
-    <string name="deed_notification_text_streak">%1$d days running. Keep it going with one small kindness.</string>
+    <string name="deed_notification_text">Do something kind and log it — worth 10 minutes of clear time.</string>
+    <string name="deed_notification_text_streak">%1$d days running. One small kindness keeps it going.</string>
+
+    <string name="earn_channel_name">Clear time</string>
+    <string name="focus_done_title">Focus session done</string>
+    <string name="focus_done_text">Nice. %1$d clear minutes added — your feeds run at full speed until they are spent.</string>
+    <string name="focus_done_text_capped">Nicely done. You are already at today\'s clear-time ceiling.</string>
 
     <string name="accessibility_service_description">ORBIS needs this to tell which screen you are on inside an app — for example Instagram Reels versus Instagram Stories. Only Reels, Shorts and Spotlight are ever slowed; Stories, messages and normal videos are left alone. ORBIS reads screens only in the apps it targets, keeps everything on your device, and never sends anything anywhere.</string>
 </resources>

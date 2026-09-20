@@ -84,7 +84,9 @@ fun AboutScreen(
 
         InShortCard()
 
-        AboutSection(
+        HowItWorksStrip(Modifier.padding(vertical = 4.dp))
+
+        CollapsibleCard(
             title = "What the name means",
             initiallyExpanded = false,
         ) {
@@ -103,7 +105,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "What gets slowed, and what never does",
             initiallyExpanded = true,
         ) {
@@ -145,7 +147,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "What ORBIS can see about you",
             initiallyExpanded = true,
         ) {
@@ -161,8 +163,7 @@ fun AboutScreen(
                         "Snapchat and WhatsApp — kept for a rolling window, then deleted",
                     "Which of those four screens you are on right now, held in " +
                         "memory only and never written down",
-                    "Your good-deed log: the photo you took, an optional note, and " +
-                        "the date",
+                    "The clear time you earned and spent each day",
                 )
             )
             Paragraph("What ORBIS never sees:")
@@ -181,7 +182,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "The three permissions, and why each one",
             initiallyExpanded = false,
         ) {
@@ -230,13 +231,12 @@ fun AboutScreen(
                 onClick = null,
             )
             Paragraph(
-                "Two more, both ordinary: notifications, for the once-a-day " +
-                    "good-deed nudge, and the camera, used only when you tap to " +
-                    "photograph a deed."
+                "One more, and it is ordinary: notifications, so ORBIS can tell " +
+                    "you when a focus session has finished and paid out."
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "How the slow-down actually works",
             initiallyExpanded = false,
         ) {
@@ -257,11 +257,12 @@ fun AboutScreen(
             )
             NumberedStep(
                 3,
-                "Packets are held back briefly",
-                "Data heading to those apps waits a fraction of a second before " +
-                    "being passed on. Nothing is dropped or altered — videos still " +
-                    "play, they just take a beat longer to get going, which is " +
-                    "exactly the beat where you notice you have been scrolling."
+                "The feed is squeezed, then let go",
+                "Every five seconds the app's downloads are held to a trickle for " +
+                    "a moment, then released. Videos stall or drop in quality, " +
+                    "recover, and stall again - and that stutter is exactly the " +
+                    "moment you notice you have been scrolling. Nothing you send or " +
+                    "receive is read or altered."
             )
             NumberedStep(
                 4,
@@ -272,18 +273,19 @@ fun AboutScreen(
             )
             Callout(
                 title = "How much slower, exactly?",
-                body = "Between ${ThrottleEngine.BASE_DELAY_MILLIS}ms and " +
-                    "${ThrottleEngine.MAX_DELAY_MILLIS}ms of delay — that is under " +
-                    "half a second at the very most. It starts at the low end and " +
-                    "climbs as your short-video time for the day adds up, so a " +
-                    "quick look costs you almost nothing and a long session gets " +
-                    "steadily draggier. The cap is deliberately low: a delay big " +
-                    "enough to feel broken just gets the app uninstalled, which " +
+                body = "Each squeeze lasts ${ThrottleEngine.MIN_SQUEEZE_MILLIS / 100 / 10.0} " +
+                    "seconds on a light day, rising to " +
+                    "${ThrottleEngine.MAX_SQUEEZE_MILLIS / 1000} of every " +
+                    "${ThrottleEngine.PULSE_PERIOD_MILLIS / 1000} as your short-video " +
+                    "time for the day adds up across all your apps. In between, the " +
+                    "feed runs close to normal on a light day and noticeably slower " +
+                    "on a heavy one. It is never cut off completely: a " +
+                    "feed that feels broken just gets the app uninstalled, which " +
                     "helps nobody."
             )
         }
 
-        AboutSection(
+        CollapsibleCard(
             title = "Where \"time you got back\" comes from",
             initiallyExpanded = false,
         ) {
@@ -305,25 +307,7 @@ fun AboutScreen(
             )
         }
 
-        AboutSection(
-            title = "The good-deed challenge",
-            initiallyExpanded = false,
-        ) {
-            Paragraph(
-                "Taking time away from something works far better when there is " +
-                    "somewhere for it to go. Once a day ORBIS nudges you to do one " +
-                    "small good thing off your phone and log it with a photo."
-            )
-            Paragraph(
-                "The bar is meant to be low: washing up, helping a sibling with " +
-                    "homework, texting a friend who is having a bad week, picking " +
-                    "up litter on the way home. Log it and your streak grows. The " +
-                    "photos are for you — they are saved in the app's private " +
-                    "folder, are not shared anywhere, and never touch your gallery."
-            )
-        }
-
-        AboutSection(
+        CollapsibleCard(
             title = "Limits, and switching it off",
             initiallyExpanded = false,
         ) {
@@ -407,7 +391,7 @@ private fun InShortCard() {
  * someone find their one question instead.
  */
 @Composable
-private fun AboutSection(
+internal fun CollapsibleCard(
     title: String,
     initiallyExpanded: Boolean,
     content: @Composable () -> Unit,

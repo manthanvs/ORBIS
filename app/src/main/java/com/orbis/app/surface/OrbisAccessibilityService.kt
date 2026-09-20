@@ -1,6 +1,10 @@
 package com.orbis.app.surface
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -9,10 +13,16 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.content.ContextCompat
 import com.orbis.app.data.UsageRepository
+import com.orbis.app.earn.ClearTimeHolder
+import com.orbis.app.earn.EarnRepository
+import com.orbis.app.earn.FocusSession
+import com.orbis.app.throttle.TcpFallback
 import com.orbis.app.throttle.ThrottleEngine
 import com.orbis.app.throttle.ThrottleSettings
 import com.orbis.app.usage.UsageProfileHolder
+import com.orbis.app.usage.VariantDiscovery
 import com.orbis.app.vpn.OrbisVpnService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +57,15 @@ class OrbisAccessibilityService : AccessibilityService() {
     /** When a throttled surface was last actually on screen. */
     private var lastThrottledMillis = 0L
 
+    /** When clear-time spending was last written back to the ledger. */
+    private var lastFlushMillis = 0L
+
+    /** When today's usage was last re-read while a feed was on screen. */
+    private var lastUsageRefreshMillis = 0L
+
+    /** When a throttled surface was last seen at all, credit or not. */
+    private var lastFeedSeenMillis = 0L
+
     /**
      * Cached [VpnService.prepare] result. Consent effectively never changes, but
      * checking it is a round trip to the system server and the gate runs on
@@ -61,29 +80,111 @@ class OrbisAccessibilityService : AccessibilityService() {
     /** Trailing evaluation, so the last event of a burst is not simply dropped. */
     private val trailingEvaluation = Runnable { evaluate() }
 
-    /** See [scheduleWatchdog] - this is what guarantees the tunnel comes down. */
+    /**
+     * Looks at the screen again, then decides whether the tunnel comes down.
+     *
+     * It re-evaluates rather than trusting the last event because a video playing
+     * steadily sends no events at all. Measured on CPH2585: a YouTube Short left
+     * playing lost its throttle ~9 s in, because the last event had aged past the
+     * grace period while the Short was still on screen - so the slowdown flickered
+     * off mid-video and back on at the next tap. Looking costs a handful of
+     * binder calls every [WATCHDOG_INTERVAL_MILLIS]; being wrong costs the feature.
+     *
+     * It is also what meters clear time through a long video, for the same reason.
+     *
+     * See [scheduleWatchdog] - this is still what guarantees the tunnel comes down.
+     */
     private val watchdog = object : Runnable {
         override fun run() {
-            if (!OrbisVpnService.isRunning.value) return
-            if (SystemClock.uptimeMillis() - lastThrottledMillis >= STOP_GRACE_MILLIS) {
+            evaluate()
+
+            val running = OrbisVpnService.isRunning.value
+            if (running && SystemClock.uptimeMillis() - lastThrottledMillis >= STOP_GRACE_MILLIS) {
                 Log.i(TAG, "watchdog: no throttled surface recently, stopping tunnel")
                 OrbisVpnService.stop(this@OrbisAccessibilityService)
-                return
             }
-            handler.postDelayed(this, WATCHDOG_INTERVAL_MILLIS)
+
+            // Keep looking while there is either a tunnel to take down or a feed
+            // whose credit is being spent. Once both are gone, events take over.
+            // Keyed on a fresh sighting rather than SurfaceMonitor: when the
+            // screen cannot be read at all - an app ORBIS does not observe - the
+            // monitor keeps its last value, and this loop would never end.
+            val onFeed = ThrottleSettings.enabled.value &&
+                SystemClock.uptimeMillis() - lastFeedSeenMillis < STOP_GRACE_MILLIS
+            if (running || onFeed) scheduleWatchdog()
+        }
+    }
+
+    /**
+     * Stands everything down when the screen goes off.
+     *
+     * Locking the phone with Reels open leaves Reels as the foreground surface, so
+     * nothing else would ever end the session: the tunnel stayed up all night,
+     * dropping the app's TCP - its background sync included - and the watchdog
+     * kept re-reading a screen nobody could see. Nobody watches a feed with the
+     * screen off. When it comes back on, the unlock's own window events raise the
+     * tunnel again within a second if the feed is still there.
+     */
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != Intent.ACTION_SCREEN_OFF) return
+            handler.removeCallbacks(watchdog)
+            handler.removeCallbacks(trailingEvaluation)
+            lastFeedSeenMillis = 0L
+            lastThrottledMillis = 0L
+            lastFlushMillis = 0L
+            // Credit spent up to the lock is written back now rather than waiting
+            // for a flush that, with the screen off, may not come for hours.
+            flushSpend(SystemClock.uptimeMillis())
+            if (OrbisVpnService.isRunning.value) OrbisVpnService.stop(this@OrbisAccessibilityService)
         }
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        // A system broadcast: delivered to a non-exported receiver, and it cannot
+        // be declared in the manifest at all.
+        ContextCompat.registerReceiver(
+            this,
+            screenOff,
+            IntentFilter(Intent.ACTION_SCREEN_OFF),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         Log.i(TAG, "connected; observing=" + (serviceInfo?.packageNames?.joinToString() ?: "ALL"))
         ThrottleSettings.init(applicationContext)
+        FocusSession.init(applicationContext)
+        observeInstalledBuilds()
 
         // The gate scales the delay by today's usage, but this service may be the
         // first thing to run in the process - the UI need never have opened. Seed
-        // the profile so the first throttle is not stuck at the base delay.
+        // the profile so the first throttle is not stuck at the base delay, and
+        // the clear-time balance so credit earned earlier today is honoured before
+        // the user ever opens the app.
         scope.launch {
             runCatching { UsageRepository.shared(applicationContext).refreshToday() }
+            runCatching { EarnRepository.shared(applicationContext).refresh() }
+        }
+    }
+
+    /**
+     * Widens what this service observes to the builds of the target apps actually
+     * installed, mods included.
+     *
+     * The config XML can only name packages known when it was written, and a
+     * hardcoded list of mods ages badly - there are dozens, and the two this
+     * project knew about were found by looking at one phone.
+     * [VariantDiscovery] only registers a package that carries the app's own
+     * screen ids, so the boundary widens to things ORBIS can genuinely
+     * recognise, never to anything that merely opens the same links.
+     */
+    private fun observeInstalledBuilds() {
+        runCatching {
+            val observed = VariantDiscovery.run(applicationContext) + BrowserPackages.ALL
+            val info = serviceInfo ?: return
+            if (observed.size == info.packageNames?.size) return
+            info.packageNames = observed.toTypedArray()
+            serviceInfo = info
+            Log.i(TAG, "observing ${observed.size} packages")
         }
     }
 
@@ -131,40 +232,91 @@ class OrbisAccessibilityService : AccessibilityService() {
             }
 
             SurfaceMonitor.publish(surface, activePackage, System.currentTimeMillis())
-            applyThrottleGate(surface, now)
+
+            // Before the gate, which returns early when auto-slowing is off: a
+            // focus session is broken by opening a feed whatever ORBIS would then
+            // have done about it.
+            if (surface.throttled) {
+                lastFeedSeenMillis = now
+                FocusSession.onFeedOpened(applicationContext)
+            }
+
+            applyThrottleGate(surface, activePackage, now)
         } finally {
             root.recycleCompat()
         }
     }
 
     /**
-     * Brings the tunnel up only while a short-form feed is on screen, and takes it
-     * down again afterwards. Without this the tunnel would be slowing - and, for
+     * Brings the tunnel up only while a short-form feed is on screen, pointed only
+     * at the app showing it, and takes it down again afterwards.
+     *
+     * Both halves matter. Without the gate the tunnel would be slowing - and, for
      * TCP and anything it cannot relay, breaking - traffic during DMs, Stories and
-     * ordinary browsing.
+     * ordinary browsing. Without the routing it would be doing that to every
+     * target app at once, so watching Reels degraded YouTube, Snapchat and each
+     * routed browser too.
      */
-    private fun applyThrottleGate(surface: Surface, nowMillis: Long) {
+    private fun applyThrottleGate(surface: Surface, activePackage: String, nowMillis: Long) {
         if (!ThrottleSettings.enabled.value) return
 
-        val running = OrbisVpnService.isRunning.value
-
-        if (surface.throttled) {
-            lastThrottledMillis = nowMillis
-            if (!running && hasConsent(nowMillis)) {
-                // Real usage, not EMPTY: this is what makes the throttle adaptive.
-                val delay = ThrottleEngine
-                    .ruleFor(surface, UsageProfileHolder.profile.value)
-                    .delayMillis
-                OrbisVpnService.start(this, delay)
-                scheduleWatchdog()
-            }
+        if (!surface.throttled) {
+            // Teardown is driven by the watchdog rather than by this event, because
+            // the events stop arriving the moment the user leaves the observed apps -
+            // which is exactly when the tunnel most needs to come down.
+            if (OrbisVpnService.isRunning.value) scheduleWatchdog()
             return
         }
 
-        // Teardown is driven by the watchdog rather than by this event, because
-        // the events stop arriving the moment the user leaves the observed apps -
-        // which is exactly when the tunnel most needs to come down.
-        if (running) scheduleWatchdog()
+        // An app the relay would only starve - it has moved to TCP - is left at
+        // full speed for a while, credit untouched. Checked before anything that
+        // would count this as throttled, so the watchdog brings the tunnel down.
+        if (TcpFallback.isStandingDown(activePackage, System.currentTimeMillis())) {
+            if (OrbisVpnService.isRunning.value) scheduleWatchdog()
+            return
+        }
+
+        // Clear time the user has earned buys this feed back to full speed. ORBIS
+        // then gets out of the way completely - including taking the tunnel down,
+        // exactly as it would for a surface that was never throttled. Charging
+        // before the consent check is deliberate: credit is spent on watching, not
+        // on ORBIS being in a position to interfere.
+        val onCredit = ClearTimeHolder.charge(nowMillis)
+        flushSpend(nowMillis)
+        if (onCredit) {
+            // Armed even with no tunnel to take down: the watchdog's re-look is what
+            // keeps charging while a single long video plays without events.
+            scheduleWatchdog()
+            return
+        }
+
+        lastThrottledMillis = nowMillis
+        refreshUsageIfStale(nowMillis)
+        if (!hasConsent(nowMillis)) return
+
+        // Fails closed: a throttled surface ORBIS cannot attribute to one app is
+        // left alone rather than routed as a guess.
+        val route = ThrottleEngine.routeFor(surface, activePackage)
+        if (route.isEmpty()) return
+
+        // Real usage, not EMPTY: this is what makes the throttle adaptive.
+        val friction = ThrottleEngine
+            .ruleFor(
+                surface,
+                UsageProfileHolder.profile.value,
+                UsageProfileHolder.baselineMillis.value,
+            )
+            .friction
+
+        // Compared against the service rather than a local copy, so a tunnel the
+        // watchdog stopped behind this gate's back is noticed. Re-sending on every
+        // evaluation would be a startService round trip several times a second.
+        val current = OrbisVpnService.isRunning.value &&
+            OrbisVpnService.routedApps.value == route &&
+            OrbisVpnService.currentFriction == friction
+
+        if (!current) OrbisVpnService.start(this, friction, route)
+        scheduleWatchdog()
     }
 
     /**
@@ -181,8 +333,52 @@ class OrbisAccessibilityService : AccessibilityService() {
         handler.postDelayed(watchdog, WATCHDOG_INTERVAL_MILLIS)
     }
 
+    /**
+     * Writes metered clear-time spending back to the ledger, occasionally.
+     *
+     * The gate runs several times a second while a feed is on screen; a row per
+     * tick would be hundreds of writes a minute. Up to [SPEND_FLUSH_MILLIS] of
+     * spending is therefore unbilled if the process dies - which under-charges the
+     * user, the harmless direction to be wrong in.
+     */
+    private fun flushSpend(nowMillis: Long) {
+        if (nowMillis - lastFlushMillis < SPEND_FLUSH_MILLIS) return
+        lastFlushMillis = nowMillis
+
+        scope.launch {
+            runCatching {
+                val repository = EarnRepository.shared(applicationContext)
+                repository.flushSpend()
+                repository.refresh()
+            }
+        }
+    }
+
+    /**
+     * Re-reads today's usage every [USAGE_REFRESH_MILLIS] while a feed is on screen.
+     *
+     * The delay scales with today's minutes, but the profile was only ever read
+     * when the service connected or the ORBIS UI opened. On an ordinary day
+     * neither happens after breakfast, so the throttle stayed at the morning's
+     * intensity however much the user scrolled. The gate re-reads the profile on
+     * its next pass and the tunnel adopts the new delay in place.
+     */
+    private fun refreshUsageIfStale(nowMillis: Long) {
+        if (nowMillis - lastUsageRefreshMillis < USAGE_REFRESH_MILLIS) return
+        lastUsageRefreshMillis = nowMillis
+        scope.launch {
+            runCatching { UsageRepository.shared(applicationContext).refreshToday() }
+        }
+    }
+
+    /**
+     * A granted consent is cached for a minute; a missing one for a few seconds.
+     * Caching "no" for the full minute meant the first Reels after the user tapped
+     * Allow could go unslowed for up to sixty seconds.
+     */
     private fun hasConsent(nowMillis: Long): Boolean {
-        if (nowMillis - consentCheckedMillis < CONSENT_CACHE_MILLIS) return hasConsent
+        val ttl = if (hasConsent) CONSENT_CACHE_MILLIS else CONSENT_RETRY_MILLIS
+        if (nowMillis - consentCheckedMillis < ttl) return hasConsent
         consentCheckedMillis = nowMillis
         hasConsent = VpnService.prepare(this) == null
         return hasConsent
@@ -192,6 +388,7 @@ class OrbisAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        runCatching { unregisterReceiver(screenOff) }
         handler.removeCallbacks(watchdog)
         handler.removeCallbacks(trailingEvaluation)
         // Detection is what gates the tunnel. With it gone nothing would ever take
@@ -337,5 +534,14 @@ class OrbisAccessibilityService : AccessibilityService() {
 
         /** Consent is granted once and then effectively permanent. */
         const val CONSENT_CACHE_MILLIS = 60_000L
+
+        /** How often metered clear-time spending is written back. */
+        const val SPEND_FLUSH_MILLIS = 10_000L
+
+        /** How soon a missing VPN consent is checked again. */
+        const val CONSENT_RETRY_MILLIS = 3_000L
+
+        /** How often usage is re-read while a feed is on screen. */
+        const val USAGE_REFRESH_MILLIS = 60_000L
     }
 }

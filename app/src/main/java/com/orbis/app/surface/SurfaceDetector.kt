@@ -1,6 +1,7 @@
 package com.orbis.app.surface
 
 import com.orbis.app.usage.TargetApp
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Decides which [Surface] the user is on, from signals captured off the
@@ -62,39 +63,65 @@ object SurfaceDetector {
      * finds. The rules themselves stay here, so there is still one place that
      * decides what counts as a throttled surface.
      */
-    fun candidateIdsFor(packageName: String): List<String>? = CANDIDATE_IDS[packageName]
+    fun candidateIdsFor(packageName: String): List<String>? {
+        val ids = idsFor(TargetApp.fromPackage(packageName)) ?: return null
+        return qualified.getOrPut(packageName) { ids.qualifiedFor(packageName) }
+    }
+
+    /**
+     * One id per app, enough to recognise a build of it by its resources alone.
+     * [com.orbis.app.usage.VariantDiscovery] asks this of every candidate.
+     */
+    fun markerIdFor(app: TargetApp): String? = idsFor(app)?.first()
 
     private fun Set<String>.qualifiedFor(packageName: String): List<String> =
         map { "$packageName:id/$it" }
 
-    private val CANDIDATE_IDS: Map<String, List<String>> = mapOf(
-        TargetApp.INSTAGRAM.packageName to
-            INSTAGRAM_REELS_IDS.qualifiedFor(TargetApp.INSTAGRAM.packageName),
-        TargetApp.YOUTUBE.packageName to
-            YOUTUBE_SHORTS_IDS.qualifiedFor(TargetApp.YOUTUBE.packageName),
-        TargetApp.SNAPCHAT.packageName to
-            SNAPCHAT_SPOTLIGHT_IDS.qualifiedFor(TargetApp.SNAPCHAT.packageName),
-    )
+    /** The rules for an app, or null for one that is never throttled. */
+    private fun idsFor(app: TargetApp?): Set<String>? = when (app) {
+        TargetApp.INSTAGRAM -> INSTAGRAM_REELS_IDS
+        TargetApp.YOUTUBE -> YOUTUBE_SHORTS_IDS
+        TargetApp.SNAPCHAT -> SNAPCHAT_SPOTLIGHT_IDS
+        TargetApp.WHATSAPP, null -> null
+    }
+
+    /**
+     * Qualified with each package's *own* name. A repackaged client carries the
+     * same ids under its own package - Morphe's Shorts player is
+     * `app.morphe.android.youtube:id/reel_watch_player` - so asking the framework
+     * for the official name would never find it.
+     *
+     * Cached rather than precomputed, because builds are now discovered at
+     * runtime and the service asks on every evaluation.
+     */
+    private val qualified = ConcurrentHashMap<String, List<String>>()
 
     /** True when [text] contains a short-video URL. Used for browser address bars. */
     fun isShortVideoUrl(text: String): Boolean = SHORT_VIDEO_URL.containsMatchIn(text)
 
-    fun detect(signals: SurfaceSignals): Surface = when (signals.packageName) {
-        TargetApp.INSTAGRAM.packageName ->
-            signals.matches(INSTAGRAM_REELS_IDS).toSurface(Surface.REELS)
-
-        TargetApp.YOUTUBE.packageName ->
-            signals.matches(YOUTUBE_SHORTS_IDS).toSurface(Surface.SHORTS)
-
-        TargetApp.SNAPCHAT.packageName ->
-            signals.matches(SNAPCHAT_SPOTLIGHT_IDS).toSurface(Surface.SPOTLIGHT)
-
-        in BrowserPackages.ALL ->
-            signals.texts.any { SHORT_VIDEO_URL.containsMatchIn(it) }
+    /**
+     * Scoped by *app*, which the package resolves to - so InstaPro gets
+     * Instagram's rules, and `reel_*` still means Stories there, not Shorts.
+     */
+    fun detect(signals: SurfaceSignals): Surface {
+        if (signals.packageName in BrowserPackages.ALL) {
+            return signals.texts.any { SHORT_VIDEO_URL.containsMatchIn(it) }
                 .toSurface(Surface.BROWSER_SHORT_VIDEO)
+        }
 
-        // Includes WhatsApp and every untracked app.
-        else -> Surface.NORMAL
+        return when (TargetApp.fromPackage(signals.packageName)) {
+            TargetApp.INSTAGRAM ->
+                signals.matches(INSTAGRAM_REELS_IDS).toSurface(Surface.REELS)
+
+            TargetApp.YOUTUBE ->
+                signals.matches(YOUTUBE_SHORTS_IDS).toSurface(Surface.SHORTS)
+
+            TargetApp.SNAPCHAT ->
+                signals.matches(SNAPCHAT_SPOTLIGHT_IDS).toSurface(Surface.SPOTLIGHT)
+
+            // WhatsApp and every untracked app.
+            TargetApp.WHATSAPP, null -> Surface.NORMAL
+        }
     }
 
     private fun SurfaceSignals.matches(ids: Set<String>): Boolean =

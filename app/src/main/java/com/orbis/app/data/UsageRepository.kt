@@ -78,26 +78,47 @@ class UsageRepository(
                 windowEndMillis = endOfWindow,
             )
 
+            // Built first so the rows are written per app, variants folded in:
+            // InstaPro's time is logged under Instagram, not dropped.
+            val profile = UsageProfile.from(totals)
+
             val date = today.toString()
             dao.upsertAll(
                 TargetApp.entries.map { app ->
                     UsageLog(
                         app = app.packageName,
                         date = date,
-                        durationMillis = totals[app.packageName] ?: 0L,
+                        durationMillis = profile.durationOf(app),
                     )
                 }
             )
 
-            UsageProfile.from(totals)
+            profile
         }
 
         cachedProfile = profile
         cachedAtMillis = now
         cachedDate = today
-        UsageProfileHolder.publish(profile)
+        UsageProfileHolder.publish(profile, recentAverageMillis(today))
         profile
     }
+
+    /**
+     * What the last [BASELINE_DAYS] of short-form actually looked like, per day.
+     *
+     * This floors the throttle level. Without it every midnight would drop a
+     * settled habit back to level 1 and spend the morning nudging someone who is
+     * well past nudging. Today is excluded: it is only part-way through.
+     */
+    private suspend fun recentAverageMillis(today: LocalDate): Long =
+        withContext(Dispatchers.IO) {
+            val days = dao.dailyTotals(
+                startDate = today.minusDays(BASELINE_DAYS).toString(),
+                endDate = today.minusDays(1).toString(),
+                apps = TargetApp.throttleable.map { it.packageName },
+            )
+            if (days.isEmpty()) 0L else days.sumOf { it.totalMillis } / days.size
+        }
 
     /**
      * Daily totals for the short-form apps over the last [days], for the dashboard.
@@ -138,6 +159,9 @@ class UsageRepository(
 
         /** History older than this cannot appear on any screen. */
         const val RETENTION_DAYS = 60
+
+        /** Days the throttle level's floor averages over. */
+        const val BASELINE_DAYS = 7L
 
         @Volatile
         private var instance: UsageRepository? = null

@@ -43,7 +43,15 @@ class RoutedPackagesTest {
 
     @Test
     fun `every routed package is either throttleable or a browser`() {
-        val expected = TargetApp.throttleable.map { it.packageName }.toSet() + BrowserPackages.ALL
+        val expected = TargetApp.throttleable.flatMap { it.allPackages }.toSet() + BrowserPackages.ALL
         assertTrue(routed.toSet() == expected)
+    }
+
+    @Test
+    fun `modded builds of the target apps can be routed`() {
+        // InstaPro and Morphe were the user's actual Instagram and YouTube on the
+        // test device. Absent from here, their feeds could never be slowed.
+        assertTrue(routed.contains("com.instapro2.android"))
+        assertTrue(routed.contains("app.morphe.android.youtube"))
     }
 }

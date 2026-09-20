@@ -49,6 +49,7 @@ import com.orbis.app.dashboard.DayTotal
 import com.orbis.app.dashboard.ReclaimedSummary
 import com.orbis.app.surface.DetectedSurface
 import com.orbis.app.surface.Surface
+import com.orbis.app.throttle.ThrottleLevel
 import com.orbis.app.ui.theme.OrbisTheme
 import com.orbis.app.usage.AppUsage
 import com.orbis.app.usage.DurationFormatter
@@ -87,7 +88,7 @@ fun HomeScreen(
     onGrantUsageAccess: () -> Unit,
     onEnableDetection: () -> Unit,
     onEnableThrottle: () -> Unit,
-    onOpenDeeds: () -> Unit,
+    onOpenEarn: () -> Unit,
     onShowSimple: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -149,12 +150,15 @@ fun HomeScreen(
             }
         }
 
+        LevelCard(state.level)
+
         TodaySplitCard(state.profile)
 
         StreakTeaser(
             streak = state.streak,
-            doneToday = state.deedDoneToday,
-            onOpenDeeds = onOpenDeeds,
+            earnedToday = state.earnedToday,
+            clearTimeMillis = state.clearTimeMillis,
+            onOpenEarn = onOpenEarn,
         )
 
         Spacer(Modifier.height(8.dp))
@@ -266,7 +270,8 @@ private fun ProtectionUiState.toStatus(): ProtectionStatus = when {
     !hasDetection -> ProtectionStatus(
         headline = "Detection is off",
         detail = "Turn on surface detection so ORBIS can tell Reels from Stories. " +
-            "It only ever reads the apps ORBIS targets, and nothing leaves your phone.",
+            "It only ever reads the apps ORBIS targets, and nothing leaves your phone. " +
+            "Look under Downloaded apps or Installed apps in the list that opens.",
         tone = Tone.SETUP,
         action = Action.DETECTION,
     )
@@ -274,7 +279,16 @@ private fun ProtectionUiState.toStatus(): ProtectionStatus = when {
     !autoThrottle -> ProtectionStatus(
         headline = "Ready when you are",
         detail = "Everything's set up. Switch on auto-slowing and ORBIS will add a " +
-            "little friction to Reels, Shorts and Spotlight — and nothing else.",
+            "stutter to Reels, Shorts and Spotlight — and nothing else. " +
+            "Android will ask to allow a VPN; it stays on your phone.",
+        tone = Tone.SETUP,
+        action = Action.THROTTLE,
+    )
+
+    !canSlow -> ProtectionStatus(
+        headline = "VPN permission was lost",
+        detail = "Android lets one app use a VPN at a time, and another one has " +
+            "taken ORBIS's turn. Nothing is being slowed until you allow it again.",
         tone = Tone.SETUP,
         action = Action.THROTTLE,
     )
@@ -283,7 +297,9 @@ private fun ProtectionUiState.toStatus(): ProtectionStatus = when {
         headline = "Slowing ${detected.surface.label()}",
         detail = buildString {
             append(detected.packageName?.let(::appLabel) ?: "Short-form video")
-            if (delayMillis > 0L) append(" · ${delayMillis}ms of friction")
+            if (pulsePeriodMillis > 0L) {
+                append(" · stalls ${seconds(squeezeMillis)}s of every ${seconds(pulsePeriodMillis)}s")
+            }
         },
         tone = Tone.ACTIVE,
         action = null,
@@ -297,6 +313,12 @@ private fun ProtectionUiState.toStatus(): ProtectionStatus = when {
         tone = Tone.READY,
         action = null,
     )
+}
+
+/** 2400 -> "2.4", 5000 -> "5". */
+private fun seconds(millis: Long): String {
+    val tenths = (millis + 50L) / 100L
+    return if (tenths % 10L == 0L) "${tenths / 10L}" else "${tenths / 10L}.${tenths % 10L}"
 }
 
 private fun Surface.label(): String = when (this) {
@@ -696,10 +718,53 @@ private fun ProtectedBadge() {
     )
 }
 
+// --------------------------------------------------------------------- level
+
+/**
+ * The ladder, named. Shared with [SimpleHomeScreen] - the same one line answers
+ * "why is it barely doing anything today?" on either screen.
+ */
+@Composable
+internal fun LevelCard(level: ThrottleLevel) {
+    Card {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Level ${level.number} of ${ThrottleLevel.entries.size} · ${level.label}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = if (level == ThrottleLevel.IMMUNE) {
+                    "The top of the ladder. Short-form stalls for " +
+                        "${seconds(level.friction.squeezeMillis)}s of every " +
+                        "${seconds(level.friction.periodMillis)}s and never gets going in " +
+                        "between — by design, it is not worth opening any more."
+                } else {
+                    "Feeds stall ${seconds(level.friction.squeezeMillis)}s of every " +
+                        "${seconds(level.friction.periodMillis)}s. The level climbs with your " +
+                        "short-video time and eases off as it falls."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 // -------------------------------------------------------------------- streak
 
 @Composable
-private fun StreakTeaser(streak: Int, doneToday: Boolean, onOpenDeeds: () -> Unit) {
+private fun StreakTeaser(
+    streak: Int,
+    earnedToday: Boolean,
+    clearTimeMillis: Long,
+    onOpenEarn: () -> Unit,
+) {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -716,18 +781,20 @@ private fun StreakTeaser(streak: Int, doneToday: Boolean, onOpenDeeds: () -> Uni
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = when {
-                        streak <= 0 -> "Start a streak"
-                        streak == 1 -> "1 day of good deeds"
-                        else -> "$streak days of good deeds"
+                        clearTimeMillis > 0L ->
+                            "${DurationFormatter.format(clearTimeMillis)} clear time left"
+                        streak <= 0 -> "Earn some clear time"
+                        streak == 1 -> "1 day of earning"
+                        else -> "$streak days of earning"
                     },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = if (doneToday) {
-                        "Today's is logged."
+                    text = if (earnedToday) {
+                        "Earned today. Streak safe."
                     } else {
-                        "One small kind thing today keeps it going."
+                        "A focus session keeps it going."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -735,12 +802,12 @@ private fun StreakTeaser(streak: Int, doneToday: Boolean, onOpenDeeds: () -> Uni
             // TextButton defaults to `primary` and ignores the Card's
             // contentColor, which puts a teal label on the amber card.
             TextButton(
-                onClick = onOpenDeeds,
+                onClick = onOpenEarn,
                 colors = ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                 ),
             ) {
-                Text(if (doneToday) "View" else "Log it")
+                Text(if (earnedToday) "More" else "Earn")
             }
         }
     }
@@ -786,7 +853,7 @@ private fun HomeScreenPreview() {
             onGrantUsageAccess = {},
             onEnableDetection = {},
             onEnableThrottle = {},
-            onOpenDeeds = {},
+            onOpenEarn = {},
             onShowSimple = {},
         )
     }

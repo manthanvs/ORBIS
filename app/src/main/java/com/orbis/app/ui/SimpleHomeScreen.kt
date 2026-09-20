@@ -75,7 +75,7 @@ fun SimpleHomeScreen(
     onGrantUsageAccess: () -> Unit,
     onEnableDetection: () -> Unit,
     onEnableThrottle: () -> Unit,
-    onOpenDeeds: () -> Unit,
+    onOpenEarn: () -> Unit,
     onOpenAbout: () -> Unit,
     onShowDetails: () -> Unit,
     modifier: Modifier = Modifier,
@@ -104,13 +104,16 @@ fun SimpleHomeScreen(
             WhereItWentCard(state.profile)
         }
 
+        LevelCard(state.level)
+
         HowItWorksCard()
         SlowedOrNotCard()
 
-        SimpleStreakCard(
+        SimpleEarnCard(
             streak = state.streak,
-            doneToday = state.deedDoneToday,
-            onOpenDeeds = onOpenDeeds,
+            earnedToday = state.earnedToday,
+            clearTimeMillis = state.clearTimeMillis,
+            onOpenEarn = onOpenEarn,
         )
 
         OutlinedButton(onClick = onOpenAbout, modifier = Modifier.fillMaxWidth()) {
@@ -321,7 +324,9 @@ private fun ProtectionUiState.toSimpleStatus(
     !hasDetection -> SimpleStatus(
         headline = "Let ORBIS tell your screens apart",
         body = "This is how ORBIS knows Reels from a DM, so it slows the endless " +
-            "scroll and never your conversations. Nothing it reads leaves your phone.",
+            "scroll and never your conversations. Nothing it reads leaves your phone. " +
+            "In the list that opens, look under Downloaded apps or Installed apps " +
+            "for ORBIS surface detection.",
         tone = SimpleTone.SETUP,
         stepLabel = "Step 2 of 3",
         buttonLabel = "Open Settings",
@@ -330,19 +335,34 @@ private fun ProtectionUiState.toSimpleStatus(
 
     !autoThrottle -> SimpleStatus(
         headline = "One switch to go",
-        body = "Turn this on and Reels, Shorts and Spotlight will load a little " +
-            "slower — just enough to notice. Everything else stays exactly as " +
-            "fast as it is now.",
+        body = "Turn this on and Reels, Shorts and Spotlight will stall for a " +
+            "moment every few seconds — on purpose. Everything else stays exactly as " +
+            "fast as it is now. Android will ask whether ORBIS may set up a VPN: " +
+            "that is how it adds the drag, and it never leaves your phone.",
         tone = SimpleTone.SETUP,
         stepLabel = "Step 3 of 3",
         buttonLabel = "Turn it on",
         action = onEnableThrottle,
     )
 
+    // On, but Android no longer lets it act - usually because another VPN app
+    // was switched on since, which quietly takes the slot. Saying "all set"
+    // here would be the one lie this screen must never tell.
+    !canSlow -> SimpleStatus(
+        headline = "ORBIS needs its VPN back",
+        body = "Android only lets one app use a VPN at a time, and ORBIS has lost " +
+            "its turn — often because another VPN app was switched on. Until you " +
+            "allow it again, nothing is being slowed.",
+        tone = SimpleTone.SETUP,
+        stepLabel = null,
+        buttonLabel = "Allow again",
+        action = onEnableThrottle,
+    )
+
     tunnelRunning && detected.surface.throttled -> SimpleStatus(
         headline = "Slowing this down right now",
-        body = "You are in ${detected.surface.friendlyName()}, so ORBIS is making it " +
-            "load a bit slower on purpose. Leave the feed and everything speeds " +
+        body = "You are in ${detected.surface.friendlyName()}, so every few seconds " +
+            "ORBIS makes it stall on purpose. Leave the feed and everything speeds " +
             "straight back up.",
         tone = SimpleTone.WORKING,
         stepLabel = null,
@@ -361,7 +381,7 @@ private fun ProtectionUiState.toSimpleStatus(
     )
 }
 
-private fun Surface.friendlyName(): String = when (this) {
+internal fun Surface.friendlyName(): String = when (this) {
     Surface.REELS -> "Instagram Reels"
     Surface.SHORTS -> "YouTube Shorts"
     Surface.SPOTLIGHT -> "Snapchat Spotlight"
@@ -405,7 +425,10 @@ private fun TimeBackCard(summary: ReclaimedSummary?, loading: Boolean) {
                     )
                     summary?.todayMillis?.takeIf { it > 0L }?.let { today ->
                         Text(
-                            text = "Short videos today: ${DurationFormatter.format(today)}",
+                            // The whole app, DMs included - ORBIS measures time in
+                            // Instagram, not time in Reels, so it must not claim to.
+                            text = "Instagram, YouTube and Snapchat today: " +
+                                DurationFormatter.format(today),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -539,6 +562,10 @@ private fun HowItWorksCard() {
                 fontWeight = FontWeight.Bold,
             )
 
+            // The three pictures first. Someone who reads nothing else on this
+            // screen still leaves knowing what the app does.
+            HowItWorksStrip()
+
             HowStep(
                 number = 1,
                 title = "It times you, it does not watch you",
@@ -547,23 +574,25 @@ private fun HowItWorksCard() {
             )
             HowStep(
                 number = 2,
-                title = "It adds a small drag to endless feeds",
-                body = "While Reels, Shorts or Spotlight is on screen, videos take a " +
-                    "moment longer to load. Long enough to notice, short enough to " +
-                    "keep using if you really want to.",
+                title = "It makes endless feeds stutter",
+                body = "While Reels, Shorts or Spotlight is on screen, every five " +
+                    "seconds the feed is squeezed for a moment, then let go. Enough " +
+                    "to break the spell, never enough to break the app.",
             )
             HowStep(
                 number = 3,
-                title = "The more you scroll, the more drag",
-                body = "A light day is barely touched and a heavy day gets a bit " +
-                    "more. It adjusts to you instead of blocking anything.",
+                title = "The more you scroll, the longer it stalls",
+                body = "Each squeeze starts at a second and a half and grows to three " +
+                    "as your short-video time adds up across every app - switching " +
+                    "apps does not reset it. It never blocks anything.",
             )
             HowStep(
                 number = 4,
                 title = "It hands the time back to you",
                 body = "The minutes you did not spend scrolling show up on this " +
-                    "screen, and once a day ORBIS nudges you to go do one small " +
-                    "kind thing instead.",
+                    "screen. And you can buy a feed back to full speed: finishing " +
+                    "a focus session earns clear time, and clear time turns the " +
+                    "drag off until it is spent.",
             )
         }
     }
@@ -679,8 +708,17 @@ private fun ListBlock(heading: String, items: List<String>, accent: Color) {
 
 // -------------------------------------------------------------------- streak
 
+/**
+ * The side quest, as the home screen shows it: what clear time is left, and
+ * the way to earn more.
+ */
 @Composable
-private fun SimpleStreakCard(streak: Int, doneToday: Boolean, onOpenDeeds: () -> Unit) {
+private fun SimpleEarnCard(
+    streak: Int,
+    earnedToday: Boolean,
+    clearTimeMillis: Long,
+    onOpenEarn: () -> Unit,
+) {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -695,24 +733,27 @@ private fun SimpleStreakCard(streak: Int, doneToday: Boolean, onOpenDeeds: () ->
         ) {
             Text(
                 text = when {
-                    streak <= 0 -> "Do one good thing today"
-                    streak == 1 -> "1 day in a row"
-                    else -> "$streak days in a row"
+                    clearTimeMillis > 0L ->
+                        "${DurationFormatter.format(clearTimeMillis)} of clear time left"
+                    streak <= 0 -> "Earn some clear time"
+                    streak == 1 -> "1 day of earning"
+                    else -> "$streak days of earning in a row"
                 },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = if (doneToday) {
-                    "Today's good deed is logged. Streak safe."
-                } else {
-                    "Anything counts — help out at home, text a friend having a " +
-                        "rough day, pick up some litter. Snap a photo and it is logged."
+                text = when {
+                    clearTimeMillis > 0L ->
+                        "Your feeds run at full speed until it is spent. It resets tonight."
+                    earnedToday -> "Earned and spent today. Streak safe."
+                    else -> "Fifteen minutes without a feed, or one small kind thing, " +
+                        "buys your feeds back to full speed for a while."
                 },
                 style = MaterialTheme.typography.bodyLarge,
             )
-            FilledTonalButton(onClick = onOpenDeeds, modifier = Modifier.fillMaxWidth()) {
-                Text(if (doneToday) "See my deeds" else "Log a good deed")
+            FilledTonalButton(onClick = onOpenEarn, modifier = Modifier.fillMaxWidth()) {
+                Text(if (earnedToday) "Earn more" else "Start earning")
             }
         }
     }
@@ -753,7 +794,7 @@ private fun SimpleHomePreview() {
             onGrantUsageAccess = {},
             onEnableDetection = {},
             onEnableThrottle = {},
-            onOpenDeeds = {},
+            onOpenEarn = {},
             onOpenAbout = {},
             onShowDetails = {},
         )

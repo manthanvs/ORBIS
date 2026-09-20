@@ -16,13 +16,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.orbis.app.surface.DetectedSurface
 import com.orbis.app.surface.Surface
+import com.orbis.app.throttle.TcpFallback
 import com.orbis.app.ui.theme.OrbisTheme
 import com.orbis.app.usage.TargetApp
 import com.orbis.app.vpn.TunnelStats
@@ -56,7 +59,7 @@ fun ControlsScreen(
             fontWeight = FontWeight.Bold,
         )
 
-        SectionTitle("Surface detection")
+        SectionTitle("What ORBIS can see right now")
 
         if (!protection.hasDetection) {
             PermissionCard(
@@ -73,13 +76,21 @@ fun ControlsScreen(
 
         HorizontalDivider()
 
-        SectionTitle("Tunnel")
+        SectionTitle("Slowing")
         TunnelCard(
             tunnel = tunnel,
-            autoThrottle = protection.autoThrottle,
+            // Off when Android has withdrawn the VPN, so the switch never claims a
+            // state ORBIS cannot act on - and tapping it asks for consent again.
+            autoThrottle = protection.autoThrottle && protection.canSlow,
             onToggle = onToggleTunnel,
             onAutoThrottleChange = onAutoThrottleChange,
         )
+
+        // Out of the card and collapsed: these numbers answer "is it actually
+        // doing anything", which is a question for a bad day, not for every day.
+        CollapsibleCard(title = "Technical details", initiallyExpanded = false) {
+            Diagnostics(tunnel)
+        }
     }
 }
 
@@ -110,9 +121,9 @@ private fun TunnelCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("Status", style = MaterialTheme.typography.bodyMedium)
+                Text("Right now", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    text = if (tunnel.running) "running" else "stopped",
+                    text = if (tunnel.running) "Slowing a feed" else "Not slowing",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                     color = if (tunnel.running) {
@@ -124,8 +135,9 @@ private fun TunnelCard(
             }
 
             Text(
-                text = "Instagram, YouTube, Snapchat and browsers. WhatsApp is not " +
-                    "routed through the tunnel at all.",
+                text = "Only the app you are actually scrolling gets slowed, so " +
+                    "slowing Reels leaves YouTube and your browser at full speed. " +
+                    "WhatsApp is never slowed at all.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -137,12 +149,12 @@ private fun TunnelCard(
             ) {
                 Column(Modifier.padding(end = 12.dp)) {
                     Text(
-                        text = "Slow Reels/Shorts automatically",
+                        text = "Slow Reels, Shorts and Spotlight",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        text = "ORBIS raises the tunnel only while a short-form feed " +
-                            "is on screen, and drops it again afterwards.",
+                        text = "On while one of those feeds is on screen, off a few " +
+                            "seconds after you leave it.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -151,11 +163,19 @@ private fun TunnelCard(
             }
 
             Button(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
-                Text(if (tunnel.running) "Stop tunnel" else "Start tunnel")
+                Text(if (tunnel.running) "Stop slowing now" else "Test it for 30 seconds")
             }
 
-            HorizontalDivider()
-            Diagnostics(tunnel)
+            // The manual path routes every app ORBIS will ever route, not just the
+            // one on screen, so it says so rather than looking like the real thing.
+            Text(
+                text = "The test slows every app ORBIS covers for 30 seconds, then " +
+                    "stops on its own. It is for checking ORBIS works, not for " +
+                    "everyday use - the switch above does that.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
         }
     }
 }
@@ -173,13 +193,52 @@ private fun Diagnostics(tunnel: TunnelStats) {
         DiagnosticRow("TCP dropped", tunnel.tcpDropped.toString())
         DiagnosticRow("shed (back-pressure)", tunnel.packetsDropped.toString())
         DiagnosticRow("open flows", tunnel.activeFlows.toString())
-        DiagnosticRow("delay", "${tunnel.delayMillis}ms")
+        DiagnosticRow(
+            "pulse",
+            if (tunnel.pulsePeriodMillis > 0L) {
+                "${tunnel.squeezeMillis}ms of every ${tunnel.pulsePeriodMillis}ms"
+            } else {
+                "off"
+            },
+        )
+        DiagnosticRow("downloaded", "${tunnel.bytesIn / 1024} KB")
+        DiagnosticRow("held back by squeeze", tunnel.packetsPoliced.toString())
+        DiagnosticRow("delay (while squeezed)", "${tunnel.delayMillis}ms")
+        DiagnosticRow("routing", routedLabel(tunnel.routed))
+        StoodDownRows()
         Text(
             text = tunnel.status,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 4.dp),
         )
+    }
+}
+
+/**
+ * Apps ORBIS has stood down for because they moved to TCP, with the minutes
+ * left. Said plainly, because "why is Morphe not slowed?" deserves an answer.
+ */
+@Composable
+private fun StoodDownRows() {
+    val standingDown by TcpFallback.standingDown.collectAsStateWithLifecycle()
+    val now = System.currentTimeMillis()
+    standingDown.filterValues { it > now }.forEach { (packageName, until) ->
+        DiagnosticRow(
+            "left alone (on TCP)",
+            "${routedLabel(listOf(packageName))} · ${(until - now) / 60_000L + 1}m",
+        )
+    }
+}
+
+/**
+ * What the tunnel is carrying, named so the per-app routing is verifiable from
+ * the screen rather than only from `dumpsys connectivity`.
+ */
+private fun routedLabel(routed: List<String>): String = when {
+    routed.isEmpty() -> "nothing"
+    else -> routed.joinToString {
+        TargetApp.fromPackage(it)?.displayName ?: it.substringAfterLast('.')
     }
 }
 
@@ -211,23 +270,25 @@ private fun DetectionCard(detected: DetectedSurface) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("Current surface", style = MaterialTheme.typography.bodyMedium)
+                Text("You are looking at", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    text = detected.surface.name,
+                    text = detected.surface.friendlyName(),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                 )
             }
             Text(
-                text = detected.packageName ?: "waiting for a tracked app…",
+                text = detected.packageName?.let {
+                    TargetApp.fromPackage(it)?.displayName ?: it
+                } ?: "Open Instagram, YouTube or Snapchat and this will fill in.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 text = if (detected.surface.throttled) {
-                    "Slowed while it is on screen"
+                    "Being slowed while it is on screen"
                 } else {
-                    "Left at full speed"
+                    "Running at full speed"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,

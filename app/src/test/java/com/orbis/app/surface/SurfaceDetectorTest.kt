@@ -9,6 +9,8 @@ private const val YOUTUBE = "com.google.android.youtube"
 private const val SNAPCHAT = "com.snapchat.android"
 private const val WHATSAPP = "com.whatsapp"
 private const val EDGE = "com.microsoft.emmx"
+private const val INSTAPRO = "com.instapro2.android"
+private const val MORPHE = "app.morphe.android.youtube"
 
 class SurfaceDetectorTest {
 
@@ -147,6 +149,50 @@ class SurfaceDetectorTest {
             Surface.NORMAL,
             detect(INSTAGRAM, ids = setOf("com.instagram.android:id/action_bar_root")),
         )
+    }
+
+    // --- Modded builds. Measured on the test device: the user's Instagram was
+    // --- InstaPro and their YouTube was Morphe, each carrying the official ids
+    // --- under its own package name.
+
+    @Test
+    fun `instapro reels are detected as reels`() {
+        assertEquals(
+            Surface.REELS,
+            detect(INSTAPRO, ids = setOf("$INSTAPRO:id/clips_viewer_view_pager")),
+        )
+    }
+
+    @Test
+    fun `instapro stories stay normal, exactly as in instagram`() {
+        // A variant inherits the app's rules, the reel_ inversion included.
+        assertEquals(
+            Surface.NORMAL,
+            detect(INSTAPRO, ids = setOf("$INSTAPRO:id/reel_viewer_root")),
+        )
+    }
+
+    @Test
+    fun `morphe shorts are detected as shorts`() {
+        assertEquals(
+            Surface.SHORTS,
+            detect(MORPHE, ids = setOf("$MORPHE:id/reel_watch_player")),
+        )
+    }
+
+    @Test
+    fun `variant ids are asked for under the variant's own package`() {
+        // Asking the framework for com.google.android.youtube:id/... inside Morphe
+        // finds nothing - the ids live under app.morphe.android.youtube.
+        val candidates = SurfaceDetector.candidateIdsFor(MORPHE).orEmpty()
+
+        assertEquals(true, candidates.isNotEmpty())
+        assertEquals(true, candidates.all { it.startsWith("$MORPHE:id/") })
+    }
+
+    @Test
+    fun `whatsapp has no candidate ids at all`() {
+        assertEquals(null, SurfaceDetector.candidateIdsFor(WHATSAPP))
     }
 
     @Test
