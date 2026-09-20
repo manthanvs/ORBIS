@@ -99,6 +99,17 @@ composed:
   the bounded tunnel test, and the packet diagnostics.
 - **About** (`AboutScreen`) — the explainer.
 
+`HowItWorksStrip` is the three-picture summary (spots / slows / earn back) at the
+top of Home's how-it-works card and of About. It is **drawn in Compose, not
+shipped as an image**: an asset would be wrong in one of the two themes, blur
+when scaled, and carry text that ignores the reader's font size. It falls from a
+row to a column under 340dp.
+
+Content is capped at **640dp and centred** in `MainActivity` — one cap, inherited
+by every screen, so a tablet or unfolded phone gets a readable measure. Controls'
+packet counters live in a collapsed `CollapsibleCard`; the plain-English status
+is what the screen leads with.
+
 ### The earn-back loop
 
 `ClearTime` is pure and holds the economics; `ClearTimeHolder` is a process-wide
