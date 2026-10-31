@@ -765,25 +765,25 @@ class OrbisVpnService : VpnService() {
 
             val total = if (flow.ipv6) {
                 Ipv6.buildUdpInto(
-                    out = out,
-                    sourceAddress = flow.remoteAddressV6 ?: return,
-                    destinationAddress = flow.localAddressV6 ?: return,
-                    sourcePort = flow.remotePort,
-                    destinationPort = flow.localPort,
-                    payload = out,
-                    payloadOffset = flow.replyHeaderBytes,
-                    payloadLength = read,
+                    out,
+                    flow.remoteAddressV6 ?: return,
+                    flow.localAddressV6 ?: return,
+                    flow.remotePort,
+                    flow.localPort,
+                    out,
+                    flow.replyHeaderBytes,
+                    read,
                 )
             } else {
                 Ipv4.buildUdpInto(
-                    out = out,
-                    sourceAddress = flow.remoteAddressV4,
-                    destinationAddress = flow.localAddressV4,
-                    sourcePort = flow.remotePort,
-                    destinationPort = flow.localPort,
-                    payload = out,
-                    payloadOffset = flow.replyHeaderBytes,
-                    payloadLength = read,
+                    out,
+                    flow.remoteAddressV4,
+                    flow.localAddressV4,
+                    flow.remotePort,
+                    flow.localPort,
+                    out,
+                    flow.replyHeaderBytes,
+                    read,
                 )
             }
 

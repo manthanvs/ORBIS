@@ -33,14 +33,14 @@ class PacketBufferTest {
 
         val out = dirtyBuffer()
         val total = Ipv4.buildUdpInto(
-            out = out,
-            sourceAddress = 0x0A000001,
-            destinationAddress = 0x0A000002,
-            sourcePort = 51234,
-            destinationPort = 443,
-            payload = payload,
-            payloadOffset = 0,
-            payloadLength = payload.size,
+            out,
+            0x0A000001,
+            0x0A000002,
+            51234,
+            443,
+            payload,
+            0,
+            payload.size,
         )
 
         assertEquals(expected.size, total)
@@ -59,14 +59,14 @@ class PacketBufferTest {
         payload.copyInto(out, payloadOffset)
 
         val total = Ipv4.buildUdpInto(
-            out = out,
-            sourceAddress = 0x0A000001,
-            destinationAddress = 0x0A000002,
-            sourcePort = 443,
-            destinationPort = 51234,
-            payload = out,
-            payloadOffset = payloadOffset,
-            payloadLength = payload.size,
+            out,
+            0x0A000001,
+            0x0A000002,
+            443,
+            51234,
+            out,
+            payloadOffset,
+            payload.size,
         )
 
         assertArrayEquals(expected, out.copyOfRange(0, total))
@@ -124,14 +124,14 @@ class PacketBufferTest {
 
         val out = dirtyBuffer()
         val total = Ipv6.buildUdpInto(
-            out = out,
-            sourceAddress = v6Source,
-            destinationAddress = v6Destination,
-            sourcePort = 51234,
-            destinationPort = 443,
-            payload = payload,
-            payloadOffset = 0,
-            payloadLength = payload.size,
+            out,
+            v6Source,
+            v6Destination,
+            51234,
+            443,
+            payload,
+            0,
+            payload.size,
         )
 
         assertEquals(expected.size, total)
@@ -148,14 +148,14 @@ class PacketBufferTest {
         payload.copyInto(out, payloadOffset)
 
         val total = Ipv6.buildUdpInto(
-            out = out,
-            sourceAddress = v6Source,
-            destinationAddress = v6Destination,
-            sourcePort = 443,
-            destinationPort = 51234,
-            payload = out,
-            payloadOffset = payloadOffset,
-            payloadLength = payload.size,
+            out,
+            v6Source,
+            v6Destination,
+            443,
+            51234,
+            out,
+            payloadOffset,
+            payload.size,
         )
 
         assertArrayEquals(expected, out.copyOfRange(0, total))
