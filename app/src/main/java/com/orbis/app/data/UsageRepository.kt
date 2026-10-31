@@ -69,13 +69,13 @@ class UsageRepository(
             val totals = ForegroundTimeCalculator.totalsByPackage(
                 // Only the apps ORBIS reports on; the raw stream carries every
                 // app on the device.
-                events = source.eventsBetween(
+                source.eventsBetween(
                     startOfDay,
                     endOfWindow,
                     packages = TargetApp.packageNames,
                 ),
-                windowStartMillis = startOfDay,
-                windowEndMillis = endOfWindow,
+                startOfDay,
+                endOfWindow,
             )
 
             // Built first so the rows are written per app, variants folded in:

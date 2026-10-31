@@ -51,8 +51,8 @@ class ThrottleLevelTest {
     fun `the recent average floors the level, so midnight does not reset it`() {
         // Two hours a day for a week, five minutes so far today.
         val level = ThrottleEngine.levelFor(
-            profile = minutes("com.instagram.android" to 5),
-            baselineMillis = 120 * 60_000L,
+            minutes("com.instagram.android" to 5),
+            120 * 60_000L,
         )
 
         // 120 minutes a day is Grind - and nowhere near the Nudge that five
@@ -64,8 +64,8 @@ class ThrottleLevelTest {
     fun `a quiet week does not hold a heavy day down`() {
         // The floor only ever raises the level; today still counts on its own.
         val level = ThrottleEngine.levelFor(
-            profile = minutes("com.instagram.android" to 200),
-            baselineMillis = 0L,
+            minutes("com.instagram.android" to 200),
+            0L,
         )
 
         assertEquals(ThrottleLevel.IMMUNE, level)

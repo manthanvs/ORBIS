@@ -112,7 +112,7 @@ class EarnRepository(
     suspend fun summarize(movements: List<ClearTimeMovement>): EarnSummary = EarnSummary(
         balance = ClearTime.balance(movements),
         streak = streak(),
-        remainingUses = EarnAction.entries.associateWith {
+        remainingUses = EarnAction.values().associateWith {
             ClearTime.remainingUses(it, movements)
         },
     )

@@ -30,7 +30,7 @@ class ThrottleEngineTest {
     fun `passthrough forces zero delay even on a throttled surface`() {
         // Phase 2b relies on this: the tunnel must carry traffic untouched while
         // it is being proven correct.
-        val rule = ThrottleEngine.ruleFor(Surface.REELS, heavyInstagram, passthrough = true)
+        val rule = ThrottleEngine.ruleFor(Surface.REELS, heavyInstagram, 0L, true)
 
         assertFalse(rule.active)
         assertEquals(0L, rule.delayMillis)

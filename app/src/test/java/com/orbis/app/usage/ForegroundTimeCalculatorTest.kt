@@ -188,9 +188,9 @@ class ForegroundTimeCalculatorTest {
     @Test
     fun `returns empty for an inverted window`() {
         val result = ForegroundTimeCalculator.totalsByPackage(
-            events = listOf(foreground(INSTAGRAM, 10_000L)),
-            windowStartMillis = WINDOW_END,
-            windowEndMillis = WINDOW_START,
+            listOf(foreground(INSTAGRAM, 10_000L)),
+            WINDOW_END,
+            WINDOW_START,
         )
 
         assertTrue(result.isEmpty())

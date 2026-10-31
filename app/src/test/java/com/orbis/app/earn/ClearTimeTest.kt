@@ -116,7 +116,7 @@ class ClearTimeTest {
     fun `every action is worth less than the daily cap on its own`() {
         // An action that alone fills the day makes the cap the only rule that
         // matters and the rest of the economy decorative.
-        for (action in EarnAction.entries) {
+        for (action in EarnAction.values()) {
             assertTrue(
                 "${action.name} pays ${action.rewardMillis} against a ${ClearTime.DAILY_CAP_MILLIS} cap",
                 action.rewardMillis < ClearTime.DAILY_CAP_MILLIS,
