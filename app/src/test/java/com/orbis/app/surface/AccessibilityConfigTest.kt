@@ -35,7 +35,7 @@ class AccessibilityConfigTest {
 
     @Test
     fun `every throttleable package, variants included, is observed`() {
-        TargetApp.throttleable.flatMap { it.allPackages }.forEach { packageName ->
+        TargetApp.getThrottleable().flatMap { it.allPackages }.forEach { packageName ->
             assertTrue("$packageName is missing from packageNames", packageName in observed)
         }
     }
@@ -55,7 +55,7 @@ class AccessibilityConfigTest {
     @Test
     fun `nothing is observed that ORBIS does not act on`() {
         // The boundary is only honest if it is also tight.
-        val expected = TargetApp.throttleable.flatMap { it.allPackages }.toSet() + BrowserPackages.ALL
+        val expected = TargetApp.getThrottleable().flatMap { it.allPackages }.toSet() + BrowserPackages.ALL
         assertTrue("unexpected: ${observed - expected}", (observed - expected).isEmpty())
     }
 }

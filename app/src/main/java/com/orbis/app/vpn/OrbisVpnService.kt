@@ -290,10 +290,8 @@ class OrbisVpnService : VpnService() {
         // tunnel's own config, and Android fixes that at establish() time.
         val proxy = runCatching {
             TcpProxy(
-                protect = { socket -> protect(socket) },
-                ceilingBytesPerSecond = {
-                    friction.downloadCeilingAt(pulseElapsedMillis(System.nanoTime()))
-                },
+                { socket -> protect(socket) },
+                { friction.downloadCeilingAt(pulseElapsedMillis(System.nanoTime())) },
             ).also { it.start() }
         }.getOrNull()
         tcpProxy = proxy
@@ -1193,7 +1191,7 @@ class OrbisVpnService : VpnService() {
          * WhatsApp is absent, and must stay absent.
          */
         fun routedPackages(): List<String> =
-            TargetApp.throttleablePackages.toList() + BrowserPackages.ALL
+            TargetApp.getThrottleablePackages().toList() + BrowserPackages.ALL
 
         /**
          * @param routePackages the apps this session may carry. Defaults to every

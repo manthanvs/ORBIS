@@ -149,7 +149,7 @@ public final class ThrottleEngine {
 
     /** The on-screen build of this app if that is what is running, else the official one. */
     private static List<String> routeTo(TargetApp app, String activePackage) {
-        if (activePackage != null && TargetApp.Companion.fromPackage(activePackage) == app) {
+        if (activePackage != null && TargetApp.fromPackage(activePackage) == app) {
             return Collections.singletonList(activePackage);
         }
         return Collections.singletonList(app.getPackageName());

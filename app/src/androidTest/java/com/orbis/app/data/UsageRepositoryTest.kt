@@ -65,9 +65,9 @@ class UsageRepositoryTest {
 
         // Every tracked app gets a row even at zero, so the dashboard can tell
         // "not used today" apart from "never measured".
-        assertEquals(TargetApp.entries.size, rows.size)
+        assertEquals(TargetApp.values().size, rows.size)
         assertEquals(
-            TargetApp.entries.map { it.packageName }.toSet(),
+            TargetApp.values().map { it.packageName }.toSet(),
             rows.map { it.app }.toSet(),
         )
     }
@@ -89,7 +89,7 @@ class UsageRepositoryTest {
             .first()
 
         // Three refreshes must not produce three sets of rows.
-        assertEquals(TargetApp.entries.size, rows.size)
+        assertEquals(TargetApp.values().size, rows.size)
         assertTrue(rows.all { it.durationMillis >= 0L })
     }
 }

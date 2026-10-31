@@ -45,7 +45,7 @@ class TcpProxyTest {
     }
 
     private fun proxy(ceiling: Long, bulkBytes: Long = 64L * 1024L): TcpProxy =
-        TcpProxy(ceilingBytesPerSecond = { ceiling }, bulkBytes = bulkBytes)
+        TcpProxy({ }, { ceiling }, bulkBytes)
             .also { proxies += it; it.start() }
 
     /** Connects through [proxy] to [origin] and reads until close; returns bytes read. */
@@ -109,7 +109,7 @@ class TcpProxyTest {
     @Test
     fun `the squeeze lifts and the stream recovers`() {
         var ceiling = 16_000L
-        val proxy = TcpProxy(ceilingBytesPerSecond = { ceiling }, bulkBytes = 0L)
+        val proxy = TcpProxy({ }, { ceiling }, 0L)
             .also { proxies += it; it.start() }
         val server = origin(400_000)
 
@@ -124,8 +124,8 @@ class TcpProxyTest {
 
     @Test
     fun `connect lines parse, and anything else is refused`() {
-        assertEquals("i.instagram.com" to 443, TcpProxy.parseConnect("CONNECT i.instagram.com:443 HTTP/1.1"))
-        assertEquals("::1" to 443, TcpProxy.parseConnect("CONNECT [::1]:443 HTTP/1.1"))
+        assertEquals(TcpProxy.Target("i.instagram.com", 443), TcpProxy.parseConnect("CONNECT i.instagram.com:443 HTTP/1.1"))
+        assertEquals(TcpProxy.Target("::1", 443), TcpProxy.parseConnect("CONNECT [::1]:443 HTTP/1.1"))
         assertNull(TcpProxy.parseConnect("GET http://example.com/ HTTP/1.1"))
         assertNull(TcpProxy.parseConnect("CONNECT example.com HTTP/1.1"))
         assertNull(TcpProxy.parseConnect("CONNECT example.com:0 HTTP/1.1"))

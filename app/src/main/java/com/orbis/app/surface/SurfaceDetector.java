@@ -85,7 +85,7 @@ public final class SurfaceDetector {
      * decides what counts as a throttled surface.
      */
     public static List<String> candidateIdsFor(String packageName) {
-        Set<String> ids = idsFor(TargetApp.Companion.fromPackage(packageName));
+        Set<String> ids = idsFor(TargetApp.fromPackage(packageName));
         if (ids == null) {
             return null;
         }
@@ -124,7 +124,7 @@ public final class SurfaceDetector {
             return Surface.NORMAL;
         }
 
-        TargetApp app = TargetApp.Companion.fromPackage(signals.getPackageName());
+        TargetApp app = TargetApp.fromPackage(signals.getPackageName());
         if (app == null) {
             // WhatsApp and every untracked app.
             return Surface.NORMAL;

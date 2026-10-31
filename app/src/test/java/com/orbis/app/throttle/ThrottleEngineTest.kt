@@ -129,7 +129,7 @@ class ThrottleEngineTest {
 
     @Test
     fun `no surface ever routes whatsapp`() {
-        val everyPackage = TargetApp.entries.map { it.packageName } + BrowserPackages.ALL
+        val everyPackage = TargetApp.values().map { it.packageName } + BrowserPackages.ALL
 
         for (surface in Surface.entries) {
             for (packageName in everyPackage) {

@@ -29,8 +29,8 @@ class VariantRegistryTest {
         TargetApp.registerVariant(gbInsta, TargetApp.INSTAGRAM)
 
         assertEquals(TargetApp.INSTAGRAM, TargetApp.fromPackage(gbInsta))
-        assertTrue(gbInsta in TargetApp.packageNames)
-        assertTrue(gbInsta in TargetApp.throttleablePackages)
+        assertTrue(gbInsta in TargetApp.getPackageNames())
+        assertTrue(gbInsta in TargetApp.getThrottleablePackages())
         assertTrue(TargetApp.isThrottleable(gbInsta))
     }
 

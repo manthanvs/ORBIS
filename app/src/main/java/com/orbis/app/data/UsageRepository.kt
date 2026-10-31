@@ -72,7 +72,7 @@ class UsageRepository(
                 source.eventsBetween(
                     startOfDay,
                     endOfWindow,
-                    packages = TargetApp.packageNames,
+                    TargetApp.getPackageNames(),
                 ),
                 startOfDay,
                 endOfWindow,
@@ -84,7 +84,7 @@ class UsageRepository(
 
             val date = today.toString()
             dao.upsertAll(
-                TargetApp.entries.map { app ->
+                TargetApp.values().map { app ->
                     UsageLog(
                         app = app.packageName,
                         date = date,
@@ -115,7 +115,7 @@ class UsageRepository(
             val days = dao.dailyTotals(
                 startDate = today.minusDays(BASELINE_DAYS).toString(),
                 endDate = today.minusDays(1).toString(),
-                apps = TargetApp.throttleable.map { it.packageName },
+                apps = TargetApp.getThrottleable().map { it.packageName },
             )
             if (days.isEmpty()) 0L else days.sumOf { it.totalMillis } / days.size
         }
@@ -123,7 +123,7 @@ class UsageRepository(
     /**
      * Daily totals for the short-form apps over the last [days], for the dashboard.
      *
-     * Sums only [TargetApp.throttleable] — WhatsApp is measured but is not
+     * Sums only [TargetApp.getThrottleable()] — WhatsApp is measured but is not
      * short-form content, so counting it would make messaging look like something
      * to reclaim.
      *
@@ -133,7 +133,7 @@ class UsageRepository(
     suspend fun dailyHistory(days: Int): Map<LocalDate, Long> = withContext(Dispatchers.IO) {
         val today = LocalDate.now(clock)
         val start = today.minusDays((days - 1).toLong())
-        val shortForm = TargetApp.throttleable.map { it.packageName }
+        val shortForm = TargetApp.getThrottleable().map { it.packageName }
 
         dao.dailyTotals(start.toString(), today.toString(), shortForm)
             .associate { LocalDate.parse(it.date) to it.totalMillis }

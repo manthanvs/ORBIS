@@ -15,14 +15,14 @@ class TargetAppTest {
         // about to slow down someone's messaging.
         assertFalse(TargetApp.WHATSAPP.throttled)
         assertFalse(TargetApp.isThrottleable("com.whatsapp"))
-        assertFalse(TargetApp.throttleable.contains(TargetApp.WHATSAPP))
+        assertFalse(TargetApp.getThrottleable().contains(TargetApp.WHATSAPP))
     }
 
     @Test
     fun `only instagram youtube and snapchat are throttleable`() {
         assertEquals(
             setOf(TargetApp.INSTAGRAM, TargetApp.YOUTUBE, TargetApp.SNAPCHAT),
-            TargetApp.throttleable.toSet(),
+            TargetApp.getThrottleable().toSet(),
         )
     }
 
@@ -42,7 +42,7 @@ class TargetAppTest {
 
     @Test
     fun `package names are unique`() {
-        val packages = TargetApp.entries.map { it.packageName }
+        val packages = TargetApp.values().map { it.packageName }
         assertTrue(packages.size == packages.toSet().size)
     }
 }

@@ -43,7 +43,7 @@ class RoutedPackagesTest {
 
     @Test
     fun `every routed package is either throttleable or a browser`() {
-        val expected = TargetApp.throttleable.flatMap { it.allPackages }.toSet() + BrowserPackages.ALL
+        val expected = TargetApp.getThrottleable().flatMap { it.allPackages }.toSet() + BrowserPackages.ALL
         assertTrue(routed.toSet() == expected)
     }
 

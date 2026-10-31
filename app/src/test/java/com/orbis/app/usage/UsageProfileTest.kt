@@ -102,7 +102,7 @@ class UsageProfileTest {
     fun `variants resolve to their app`() {
         assertEquals(TargetApp.INSTAGRAM, TargetApp.fromPackage("com.instapro2.android"))
         assertEquals(TargetApp.YOUTUBE, TargetApp.fromPackage("app.morphe.android.youtube"))
-        assertTrue("com.instapro2.android" in TargetApp.packageNames)
+        assertTrue("com.instapro2.android" in TargetApp.getPackageNames())
     }
 
     @Test
