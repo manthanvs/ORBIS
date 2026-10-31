@@ -56,7 +56,7 @@ public final class ThrottleEngine {
     public static ThrottleRule ruleFor(
             Surface surface, UsageProfile profile, long baselineMillis, boolean passthrough) {
         if (passthrough) {
-            return new ThrottleRule(Friction.Companion.getNONE(), "passthrough (Phase 2b)");
+            return new ThrottleRule(Friction.NONE, "passthrough (Phase 2b)");
         }
         if (!surface.getThrottled()) {
             return ThrottleRule.NONE;

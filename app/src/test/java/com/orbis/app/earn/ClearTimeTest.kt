@@ -8,10 +8,10 @@ import org.junit.Test
 class ClearTimeTest {
 
     private fun earn(action: EarnAction, millis: Long = action.rewardMillis) =
-        ClearTimeMovement(actionName = action.name, earnedMillis = millis)
+        ClearTimeMovement.earned(action.name, millis)
 
     private fun spend(millis: Long) =
-        ClearTimeMovement(actionName = ClearTimeMovement.SPEND, spentMillis = millis)
+        ClearTimeMovement.spent(millis)
 
     @Test
     fun `an empty day has no credit`() {

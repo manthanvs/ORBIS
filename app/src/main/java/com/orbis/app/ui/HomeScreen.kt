@@ -826,11 +826,11 @@ private fun HomeScreenPreview() {
                 loading = false,
                 streak = 3,
                 summary = ReclaimedSummary(
-                    todayMillis = 22 * 60_000L,
-                    baselineMillis = 61 * 60_000L,
-                    reclaimedTodayMillis = 39 * 60_000L,
-                    reclaimedWeekMillis = 96 * 60_000L,
-                    week = (6 downTo 0).map {
+                    22 * 60_000L,
+                    61 * 60_000L,
+                    39 * 60_000L,
+                    96 * 60_000L,
+                    (6 downTo 0).map {
                         DayTotal(today.minusDays(it.toLong()), (30L + it * 9) * 60_000L)
                     },
                 ),

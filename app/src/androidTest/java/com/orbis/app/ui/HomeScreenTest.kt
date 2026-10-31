@@ -31,11 +31,11 @@ class HomeScreenTest {
     private val today: LocalDate = LocalDate.of(2026, 7, 29)
 
     private fun summary(days: Int, baselineMillis: Long? = 60 * 60_000L) = ReclaimedSummary(
-        todayMillis = 20 * 60_000L,
-        baselineMillis = baselineMillis,
-        reclaimedTodayMillis = 40 * 60_000L,
-        reclaimedWeekMillis = 90 * 60_000L,
-        week = (days - 1 downTo 0).map {
+        20 * 60_000L,
+        baselineMillis,
+        40 * 60_000L,
+        90 * 60_000L,
+        (days - 1 downTo 0).map {
             DayTotal(today.minusDays(it.toLong()), (25L + it * 7) * 60_000L)
         },
     )

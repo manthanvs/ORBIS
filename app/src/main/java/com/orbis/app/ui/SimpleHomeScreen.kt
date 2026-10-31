@@ -770,11 +770,11 @@ private fun SimpleHomePreview() {
                 loading = false,
                 streak = 3,
                 summary = ReclaimedSummary(
-                    todayMillis = 22 * 60_000L,
-                    baselineMillis = 61 * 60_000L,
-                    reclaimedTodayMillis = 39 * 60_000L,
-                    reclaimedWeekMillis = 96 * 60_000L,
-                    week = emptyList(),
+                    22 * 60_000L,
+                    61 * 60_000L,
+                    39 * 60_000L,
+                    96 * 60_000L,
+                    emptyList(),
                 ),
                 profile = UsageProfile(
                     listOf(

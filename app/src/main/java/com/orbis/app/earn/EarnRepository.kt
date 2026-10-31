@@ -133,9 +133,9 @@ class EarnRepository(
     }
 
     private fun toMovement(entry: ClearTimeEntry) = ClearTimeMovement(
-        actionName = entry.action,
-        earnedMillis = entry.earnedMillis,
-        spentMillis = entry.spentMillis,
+        entry.action,
+        entry.earnedMillis,
+        entry.spentMillis,
     )
 
     companion object {

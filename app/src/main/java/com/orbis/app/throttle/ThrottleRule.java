@@ -8,7 +8,7 @@ public final class ThrottleRule {
 
     /** The rule for anything that is not a throttled surface: no friction. */
     public static final ThrottleRule NONE =
-            new ThrottleRule(Friction.Companion.getNONE(), "not a throttled surface");
+            new ThrottleRule(Friction.NONE, "not a throttled surface");
 
     private final Friction friction;
     private final String reason;

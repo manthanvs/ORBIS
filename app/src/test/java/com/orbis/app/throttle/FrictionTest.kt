@@ -10,11 +10,11 @@ import org.junit.Test
 class FrictionTest {
 
     private val pulse = Friction(
-        delayMillis = 300L,
-        periodMillis = 5_000L,
-        squeezeMillis = 2_000L,
-        squeezeBytesPerSecond = 16_000L,
-        openBytesPerSecond = 0L,
+        300L,      // delayMillis
+        5_000L,    // periodMillis
+        2_000L,    // squeezeMillis
+        16_000L,   // squeezeBytesPerSecond
+        0L,        // openBytesPerSecond
     )
 
     // ------------------------------------------------------------------ schedule
