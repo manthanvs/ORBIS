@@ -100,7 +100,7 @@ class FocusSessionWorker(
         private const val WORK_NAME = "orbis_focus_session"
         private const val CHANNEL_ID = "orbis_earn"
 
-        /** 1 is the tunnel's foreground notification and 2 the good-deed prompt. */
+        /** 1 is the tunnel's foreground notification. */
         private const val NOTIFICATION_ID = 3
         private const val REQUEST_CODE = 3
 

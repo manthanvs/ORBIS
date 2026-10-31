@@ -9,11 +9,6 @@
     <string name="throttle_notification_title">Slowing short-form video</string>
     <string name="throttle_notification_text">Reels, Shorts and Spotlight only — everything else is at full speed</string>
 
-    <string name="deed_channel_name">Good deed</string>
-    <string name="deed_notification_title">One small good thing?</string>
-    <string name="deed_notification_text">Do something kind and log it — worth 10 minutes of clear time.</string>
-    <string name="deed_notification_text_streak">%1$d days running. One small kindness keeps it going.</string>
-
     <string name="earn_channel_name">Clear time</string>
     <string name="focus_done_title">Focus session done</string>
     <string name="focus_done_text">Nice. %1$d clear minutes added — your feeds run at full speed until they are spent.</string>

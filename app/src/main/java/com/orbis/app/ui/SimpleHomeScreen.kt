@@ -747,8 +747,8 @@ private fun SimpleEarnCard(
                     clearTimeMillis > 0L ->
                         "Your feeds run at full speed until it is spent. It resets tonight."
                     earnedToday -> "Earned and spent today. Streak safe."
-                    else -> "Fifteen minutes without a feed, or one small kind thing, " +
-                        "buys your feeds back to full speed for a while."
+                    else -> "Fifteen minutes without a feed buys your feeds back " +
+                        "to full speed for a while."
                 },
                 style = MaterialTheme.typography.bodyLarge,
             )
