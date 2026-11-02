@@ -122,7 +122,7 @@ public final class TcpProxy {
     private volatile boolean running = true;
 
     public TcpProxy(SocketGuard protect, Ceiling ceiling) throws IOException {
-        this(protect, ceiling, 64L * 1024L);
+        this(protect, ceiling, 16L * 1024L);
     }
 
     /**

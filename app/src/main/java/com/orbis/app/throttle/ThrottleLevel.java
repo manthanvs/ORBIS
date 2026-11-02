@@ -9,29 +9,36 @@ package com.orbis.app.throttle;
  * visible, and the top of the ladder is far heavier than the old maximum.
  *
  * <p>{@link #IMMUNE} is the end state, and it is deliberately close to
- * unwatchable: four seconds of every five held to a trickle, and the gap between
- * them capped below any video bitrate. Someone living at that level is not being
+ * unwatchable: 2.8 seconds of every 3 held to a trickle, and the 200ms gap
+ * between them capped below any video bitrate. Someone living at that level is not being
  * slowed down any more - short-form has simply stopped being worth opening,
  * which is the point. It is still never a block: the trickle keeps the app alive
  * and the user can always buy the level off with clear time.
  */
 public enum ThrottleLevel {
 
-    NUDGE(1, "Nudge", 0L, 1_500L, 600_000L, 120L),
-    DRAG(2, "Drag", 20L, 2_000L, 400_000L, 200L),
-    STUTTER(3, "Stutter", 45L, 2_500L, 250_000L, 280L),
-    GRIND(4, "Grind", 90L, 3_000L, 150_000L, 340L),
-    IMMUNE(5, "Immune", 150L, 4_000L, 60_000L, 400L);
-
-    /** One squeeze-then-gap cycle. Short enough to recur inside every reel. */
-    public static final long PULSE_PERIOD_MILLIS = 5_000L;
+    NUDGE(1, "Nudge", 0L, 900L, 600_000L, 120L),
+    DRAG(2, "Drag", 20L, 1_200L, 400_000L, 200L),
+    STUTTER(3, "Stutter", 45L, 1_500L, 250_000L, 280L),
+    GRIND(4, "Grind", 90L, 1_800L, 150_000L, 340L),
+    IMMUNE(5, "Immune", 150L, 2_800L, 24_000L, 400L);
 
     /**
-     * The download trickle during a squeeze, ~128 kbit/s, at every level.
+     * One squeeze-then-gap cycle.
+     *
+     * <p>Three seconds rather than five: at five the player had a long enough
+     * gap to refill its buffer and ride through the next squeeze, so the stall
+     * arrived late and only once. A shorter cycle interrupts more often for the
+     * same average throughput, and the interruption is what the user notices.
+     */
+    public static final long PULSE_PERIOD_MILLIS = 3_000L;
+
+    /**
+     * The download trickle during a squeeze, ~64 kbit/s, at every level.
      * Above zero on purpose: the app's connections survive and recover the
      * moment the squeeze lifts. A cut-off reads as broken; this reads as slow.
      */
-    public static final long SQUEEZE_BYTES_PER_SECOND = 16_000L;
+    public static final long SQUEEZE_BYTES_PER_SECOND = 8_000L;
 
     private final int number;
     private final String label;

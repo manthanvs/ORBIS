@@ -1100,7 +1100,7 @@ class OrbisVpnService : VpnService() {
          * Download bytes a flow may carry before the squeeze applies to it -
          * comfortably more than a QUIC handshake, far less than a video.
          */
-        private const val BULK_FLOW_BYTES = 64L * 1024L
+        private const val BULK_FLOW_BYTES = 16L * 1024L
 
         private const val THREAD_JOIN_MILLIS = 500L
 
