@@ -1,0 +1,6 @@
+// Top-level build file where you can add configuration options common to all
+// sub-projects/modules. Groovy rather than the Kotlin DSL: ORBIS is a Java-only
+// project, so there is no Kotlin anywhere in it, build scripts included.
+plugins {
+    alias(libs.plugins.android.application) apply false
+}

@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/orbis_background"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- What detection can see, in plain English. The screen leads with this. -->
+        <LinearLayout
+            style="@style/OrbisCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_card_accent">
+
+            <TextView
+                style="@style/OrbisTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/controls_seeing_title" />
+
+            <TextView
+                android:id="@+id/seeing_value"
+                style="@style/OrbisBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="@color/orbis_text"
+                android:textSize="17sp" />
+
+            <TextView
+                android:id="@+id/slowing_value"
+                style="@style/OrbisBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" />
+
+            <Button
+                android:id="@+id/detection_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:backgroundTint="@color/orbis_accent"
+                android:text="@string/home_detection_button"
+                android:textColor="@color/orbis_accent_dark"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- The one switch. -->
+        <LinearLayout
+            style="@style/OrbisCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    style="@style/OrbisTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/controls_switch_title" />
+
+                <Switch
+                    android:id="@+id/auto_switch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <TextView
+                style="@style/OrbisBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/controls_switch_body" />
+        </LinearLayout>
+
+        <!-- The bounded diagnostic. -->
+        <LinearLayout
+            style="@style/OrbisCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <Button
+                android:id="@+id/test_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:backgroundTint="@color/orbis_surface_high"
+                android:text="@string/controls_test"
+                android:textColor="@color/orbis_text" />
+
+            <TextView
+                style="@style/OrbisBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/controls_test_body" />
+        </LinearLayout>
+
+        <!-- Packet counters, collapsed. Tapping the header toggles them. -->
+        <LinearLayout
+            style="@style/OrbisCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <TextView
+                android:id="@+id/details_header"
+                style="@style/OrbisTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/controls_details_title" />
+
+            <TextView
+                android:id="@+id/details_body"
+                style="@style/OrbisBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:fontFamily="monospace"
+                android:textSize="13sp"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

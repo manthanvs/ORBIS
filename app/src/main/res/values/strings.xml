@@ -9,15 +9,93 @@
     <string name="throttle_notification_title">Slowing short-form video</string>
     <string name="throttle_notification_text">Reels, Shorts and Spotlight only — everything else is at full speed</string>
 
-    <string name="deed_channel_name">Good deed</string>
-    <string name="deed_notification_title">One small good thing?</string>
-    <string name="deed_notification_text">Do something kind and log it — worth 10 minutes of clear time.</string>
-    <string name="deed_notification_text_streak">%1$d days running. One small kindness keeps it going.</string>
-
     <string name="earn_channel_name">Clear time</string>
     <string name="focus_done_title">Focus session done</string>
     <string name="focus_done_text">Nice. %1$d clear minutes added — your feeds run at full speed until they are spent.</string>
     <string name="focus_done_text_capped">Nicely done. You are already at today\'s clear-time ceiling.</string>
 
     <string name="accessibility_service_description">ORBIS needs this to tell which screen you are on inside an app — for example Instagram Reels versus Instagram Stories. Only Reels, Shorts and Spotlight are ever slowed; Stories, messages and normal videos are left alone. ORBIS reads screens only in the apps it targets, keeps everything on your device, and never sends anything anywhere.</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_earn">Earn</string>
+    <string name="nav_controls">Controls</string>
+    <string name="nav_about">About</string>
+
+    <!-- Home -->
+    <string name="home_step">Step %1$d of 3</string>
+    <string name="home_setup_title">Let ORBIS see your screen time</string>
+    <string name="home_setup_body">It needs to know how long you spend in Instagram, YouTube, Snapchat and WhatsApp. Android only lets you allow this from Settings — the button opens the right list, then find ORBIS in it and switch it on.</string>
+    <string name="home_setup_button">Open settings</string>
+    <string name="home_detection_title">Let ORBIS tell Reels from your chats</string>
+    <string name="home_detection_body">This is what reads which screen is open. Without it nothing can be slowed. Settings → Accessibility → Downloaded apps → ORBIS surface detection.</string>
+    <string name="home_detection_button">Open accessibility settings</string>
+    <string name="home_enable_title">Turn on slowing</string>
+    <string name="home_enable_body">Everything is ready. Switch this on and ORBIS will slow Reels, Shorts and Spotlight — and nothing else.</string>
+    <string name="home_enable_button">Turn it on</string>
+    <string name="home_ready_title">You are all set</string>
+    <string name="home_ready_body">Everything is running at full speed. ORBIS only steps in when an endless-scroll feed opens, and steps straight back out when you leave.</string>
+    <string name="home_slowing_title">Slowing this down right now</string>
+    <string name="home_time_back_title">Time you got back</string>
+    <string name="home_learning_title">Getting to know your week</string>
+    <string name="home_learning_body">ORBIS compares today with your own normal — not with anyone else\'s. Give it a few days of using your phone exactly as you already do, and a number appears here.</string>
+    <string name="home_reclaimed_body">less than your usual day. Your usual is %1$s.</string>
+    <string name="home_over_body">more than your usual day (%1$s). Tomorrow is a new one.</string>
+    <string name="home_week_title">Your last 7 days</string>
+    <string name="home_week_caption">%1$s in the tracked apps this week. Today is the bar on the right.</string>
+    <string name="home_level_title">Friction level %1$d — %2$s</string>
+    <string name="home_level_body">Picked from %1$s of short-form video today. While a feed is open it is squeezed for %2$s of every %3$s seconds, then let go.</string>
+    <string name="home_where_title">Where today went</string>
+    <string name="home_nothing_tracked">Nothing tracked yet today.</string>
+    <string name="home_slowing_body">%1$s is on screen, and ORBIS is squeezing it.</string>
+    <string name="home_streak_teaser">%1$d days of earning clear time in a row.</string>
+    <string name="home_how_title">How ORBIS works</string>
+    <string name="home_how_body">1. It spots reels — it knows Reels from your chats.\n\n2. It slows them in bursts — every few seconds the feed is squeezed for a moment, then let go. Enough to break the spell, never enough to break the app.\n\n3. You earn it back — fifteen minutes away from the feed buys five minutes at full speed.</string>
+    <string name="home_slowed_title">What actually gets slowed</string>
+    <string name="home_slowed_body">Slowed a little: Instagram Reels, YouTube Shorts, Snapchat Spotlight, and those same feeds opened in a browser.\n\nNever touched: WhatsApp — all of it, always. DMs, chats and calls in any app. Instagram Stories and your normal feed. Normal-length YouTube videos. Games, school work, and every other app on your phone.</string>
+
+    <!-- Earn -->
+    <string name="earn_balance_title">Clear time left today</string>
+    <string name="earn_balance_body_credit">Reels, Shorts and Spotlight run at full speed until this runs out. It resets tonight, so there is nothing to save up.</string>
+    <string name="earn_balance_body_empty">Short-form feeds are running slowly. Earn some clear time below to bring them back up to speed.</string>
+    <string name="earn_focus_title">Focus session</string>
+    <string name="earn_focus_body">Fifteen minutes without opening a short-form feed.</string>
+    <string name="earn_focus_start">Start 15 minutes</string>
+    <string name="earn_focus_cancel">Cancel session</string>
+    <string name="earn_focus_running_body">Put the phone down, or use any other app — it keeps running even if you close ORBIS. Opening a feed ends it.</string>
+    <string name="earn_streak_none">No streak yet</string>
+    <string name="earn_streak_none_body">Earn clear time on two days in a row to start one.</string>
+    <string name="earn_streak_days">%1$d days of earning in a row</string>
+    <string name="earn_uses_left">%1$d left today</string>
+    <string name="earn_focus_none_left">No focus sessions left today.</string>
+    <string name="earn_focus_broken">Session ended — a short-form feed opened. No hard feelings, start another whenever.</string>
+
+    <!-- Controls -->
+    <string name="controls_seeing_title">What ORBIS can see right now</string>
+    <string name="controls_waiting">Open Instagram, YouTube or Snapchat and this will fill in.</string>
+    <string name="controls_switch_title">Slow Reels, Shorts and Spotlight</string>
+    <string name="controls_switch_body">On while one of those feeds is on screen, off a few seconds after you leave it.</string>
+    <string name="controls_test">Test it for 30 seconds</string>
+    <string name="controls_stop">Stop slowing now</string>
+    <string name="controls_test_body">The test slows every app ORBIS covers for 30 seconds, then stops on its own. It is for checking ORBIS works, not for everyday use — the switch above does that.</string>
+    <string name="controls_details_title">Technical details</string>
+    <string name="controls_seeing_value">%1$s — %2$s</string>
+    <string name="controls_slowing_value">Slowing %1$s right now.</string>
+    <string name="controls_slowing_idle">Nothing is being slowed. Everything is at full speed.</string>
+    <string name="controls_routed_none">one app</string>
+
+    <!-- About -->
+    <string name="about_title">About ORBIS</string>
+    <string name="about_short_title">In short</string>
+    <string name="about_short_body">ORBIS makes endless-scroll video feeds load slightly slower, so the scroll that was going to swallow an hour gets interrupted by you noticing it.\n\nIt only ever slows Reels, Shorts and Spotlight. It never slows WhatsApp, your DMs, your Stories or anything else. Everything it knows about you stays on this phone.</string>
+    <string name="about_slowed_title">What gets slowed, and what never does</string>
+    <string name="about_whatsapp_title">WhatsApp is never slowed. Not any part of it.</string>
+    <string name="about_whatsapp_body">WhatsApp is how you talk to people, not something you scroll at, so it is excluded at the deepest level ORBIS has: while the slow-down is active, WhatsApp\'s traffic is not routed through ORBIS at all. It is not a setting that could be flipped by accident — the phone\'s own network layer enforces it.</string>
+    <string name="about_privacy_title">What ORBIS can see about you</string>
+    <string name="about_privacy_body">Everything stays on this phone. There is no ORBIS account, no server, no cloud backup and no sync. Nothing is uploaded anywhere, because there is nowhere for it to be uploaded to.\n\nStored: how many minutes a day you spent in the four tracked apps, which of those screens you are on right now (in memory only), and the clear time you earned and spent each day.\n\nNever seen: what you post, type, send or read. Who you talk to. Any screen in any app other than the four it tracks.</string>
+    <string name="about_how_title">How the slow-down actually works</string>
+    <string name="about_how_body">1. Detection spots the feed. ORBIS checks which app is in front and which of its screens is showing. In a browser it reads the address bar instead.\n\n2. The local VPN comes up — only then, and only for the one app you are scrolling. Every other app, WhatsApp included, is left off it entirely.\n\n3. The feed is squeezed, then let go. Every few seconds the app\'s downloads are held to a trickle for a moment, then released. Videos stall, recover, and stall again — and that stutter is exactly the moment you notice you have been scrolling.\n\n4. It comes back down. Leave the feed and the VPN drops within a few seconds.</string>
+    <string name="about_limits_title">Limits, and switching it off</string>
+    <string name="about_limits_body">Detection relies on recognising specific parts of Instagram, YouTube and Snapchat\'s screens. When those apps get redesigned — and they do — ORBIS can stop recognising a feed until it is updated. The failure is a safe one: it stops slowing things, it never starts slowing the wrong thing.\n\nYou are never locked in. The Controls tab has one switch that stops the slow-down completely, and every permission can be revoked in Android\'s own Settings at any time.</string>
+    <string name="about_version">ORBIS %1$s · everything on this page happens on this phone and nowhere else</string>
 </resources>
