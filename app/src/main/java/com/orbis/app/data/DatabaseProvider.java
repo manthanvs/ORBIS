@@ -34,10 +34,10 @@ public final class DatabaseProvider {
                         // Deliberately no fallbackToDestructiveMigration: the usage
                         // history in here is what the dashboard baseline is built from.
                         .addMigrations(
-                                OrbisDatabase.Companion.getMIGRATION_1_2(),
-                                OrbisDatabase.Companion.getMIGRATION_2_3(),
-                                OrbisDatabase.Companion.getMIGRATION_3_4(),
-                                OrbisDatabase.Companion.getMIGRATION_4_5())
+                                OrbisDatabase.MIGRATION_1_2,
+                                OrbisDatabase.MIGRATION_2_3,
+                                OrbisDatabase.MIGRATION_3_4,
+                                OrbisDatabase.MIGRATION_4_5)
                         .build();
             }
             return instance;

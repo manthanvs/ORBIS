@@ -115,7 +115,7 @@ public final class SurfaceDetector {
      * there, not Shorts.
      */
     public static Surface detect(SurfaceSignals signals) {
-        if (BrowserPackages.INSTANCE.getALL().contains(signals.getPackageName())) {
+        if (BrowserPackages.ALL.contains(signals.getPackageName())) {
             for (String text : signals.getTexts()) {
                 if (isShortVideoUrl(text)) {
                     return Surface.BROWSER_SHORT_VIDEO;

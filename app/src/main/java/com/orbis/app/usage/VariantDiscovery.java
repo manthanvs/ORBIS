@@ -73,7 +73,7 @@ public final class VariantDiscovery {
         PackageManager packageManager = context.getPackageManager();
         // Browsers open these links too, and are handled by URL, not by ids.
         // An unknown browser would fail the id check below anyway.
-        Set<String> browsers = BrowserPackages.INSTANCE.getALL();
+        Set<String> browsers = BrowserPackages.ALL;
 
         for (Map.Entry<TargetApp, String> site : SITES.entrySet()) {
             TargetApp app = site.getKey();

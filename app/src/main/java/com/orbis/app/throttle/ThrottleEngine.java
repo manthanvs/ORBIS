@@ -137,7 +137,7 @@ public final class ThrottleEngine {
                 // the detector only reports this surface for BrowserPackages.ALL,
                 // and this re-checks rather than trusting it.
                 if (activePackage != null
-                        && BrowserPackages.INSTANCE.getALL().contains(activePackage)) {
+                        && BrowserPackages.ALL.contains(activePackage)) {
                     return Collections.singletonList(activePackage);
                 }
                 return Collections.emptyList();

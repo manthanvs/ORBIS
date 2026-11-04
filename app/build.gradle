@@ -1,0 +1,65 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+android {
+    // Assignment syntax throughout: Groovy's space-assignment (`namespace 'x'`)
+    // is deprecated and goes away in Gradle 10.
+    namespace = 'com.orbis.app'
+    compileSdk {
+        version = release(36) {
+            minorApiLevel = 1
+        }
+    }
+
+    defaultConfig {
+        applicationId = 'com.orbis.app'
+        // API 26 is the floor for VpnService, notification channels, and the
+        // modern permission APIs ORBIS depends on. See CLAUDE.md Phase 0.
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 1
+        versionName = '1.0'
+
+        testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    buildTypes {
+        release {
+            optimization {
+                enable = false
+            }
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+}
+
+dependencies {
+    implementation libs.androidx.core
+    implementation libs.androidx.appcompat
+    implementation libs.material
+    implementation libs.androidx.recyclerview
+    implementation libs.androidx.fragment
+
+    // LiveData is what StateHolder publishes through, and the only reactive
+    // plumbing this build has. There are no ViewModels: the state the screens
+    // observe is process-wide, because the accessibility service owns it and
+    // cannot be bound to.
+    implementation libs.androidx.lifecycle.livedata
+
+    // Single Room database backs usage_log and clear_time. Java annotation
+    // processing rather than KSP, since there is no Kotlin to process.
+    implementation libs.androidx.room.runtime
+    annotationProcessor libs.androidx.room.compiler
+
+    // Pays out a finished focus session even if the app is not running.
+    implementation libs.androidx.work.runtime
+
+    testImplementation libs.junit
+    testImplementation libs.androidx.arch.core.testing
+    androidTestImplementation libs.androidx.espresso.core
+    androidTestImplementation libs.androidx.junit
+}

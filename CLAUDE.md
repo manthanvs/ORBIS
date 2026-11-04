@@ -34,12 +34,13 @@ What exists:
 
 - `com.orbis.app.usage` — `TargetApp`, `ForegroundTimeCalculator`, `UsageProfile`, `DurationFormatter`, `UsageProfileHolder`; plus `UsageStatsSource` and `UsageAccess`.
 - `com.orbis.app.surface` — `SurfaceDetector` (pure), `OrbisAccessibilityService`, `SurfaceMonitor`, `AccessibilityAccess`, `BrowserPackages`.
-- `com.orbis.app.throttle` — `ThrottleEngine` (pure, usage-scaled delay), `ThrottleSettings` (DataStore-backed).
+- `com.orbis.app.throttle` — `ThrottleEngine` (pure, usage-scaled delay), `ThrottleLevel`, `Friction`, `TokenBucket`, `TcpFallback`, `ThrottleSettings` (SharedPreferences-backed).
 - `com.orbis.app.vpn` — `Ipv4`/`Ipv6` (pure packet parse/build), `OrbisVpnService` (UDP relay), `TcpProxy` (the TCP relay, pure JVM and loopback-tested), `TunnelStats`.
 - `com.orbis.app.data` — `UsageLog`/`UsageLogDao`/`OrbisDatabase`, `DatabaseProvider`, `UsageRepository`.
 - `com.orbis.app.dashboard` — `ReclaimedTime` (pure, unit-tested).
 - `com.orbis.app.earn` — `EarnAction`, `ClearTime`, `EarnStreak` (all pure and unit-tested), `ClearTimeHolder`, `EarnRepository`, `FocusSession`/`FocusSessionWorker`.
-- `com.orbis.app.ui` — `HomeScreen`/`SimpleHomeScreen`/`HomeViewModel`, `ControlsScreen`, `EarnScreen`/`EarnViewModel`, `AboutScreen`, `HowItWorksStrip`.
+- `com.orbis.app.ui` — `HomeFragment`, `EarnFragment`, `ControlsFragment`, `AboutFragment`, `AppUsageAdapter`, `Access`.
+- `com.orbis.app.util` — `StateHolder` (the one value screens observe) and `Background` (the two-thread IO pool).
 
 Measured behaviour: Reels detected → tunnel up with a usage-scaled delay (400 ms at ~1 h of Instagram), `read 1138 / UDP fwd 1045 / TCP dropped 77`. Browsers are routed too, so `youtube.com/shorts` in Chrome or Edge is throttled.
 
@@ -88,27 +89,39 @@ Update this file as real structure lands.
 
 ### UI structure
 
-Four destinations behind a bottom `NavigationBar`, and only the selected one is
-composed:
+XML layouts and Views, not Compose — Compose has no Java API, and this project is
+Java only. Four `Fragment`s behind a `BottomNavigationView`, and `MainActivity`
+attaches **only the selected one**, so the tab that is not on screen observes
+nothing. That matters because the tunnel republishes its counters several times a
+second and only Controls displays them.
 
-- **Home** (`HomeScreen` / `SimpleHomeScreen`) — live protection status,
-  reclaimed-time hero, 7-day chart, today's per-app split, streak teaser.
-- **Earn** (`EarnScreen`) — the clear-time balance and the focus session that
-  tops it up. A `LazyColumn`, because the action list is expected to grow again.
-- **Controls** (`ControlsScreen`) — detection state, the auto-throttle switch,
-  the bounded tunnel test, and the packet diagnostics.
-- **About** (`AboutScreen`) — the explainer.
+- **Home** (`HomeFragment`) — the onboarding steps or the live status in one
+  card, the reclaimed-time hero, the 7-day chart, today's per-app split
+  (`RecyclerView` + `AppUsageAdapter`), the streak teaser.
+- **Earn** (`EarnFragment`) — the clear-time balance and the focus session that
+  tops it up.
+- **Controls** (`ControlsFragment`) — detection state, the auto-throttle switch,
+  the bounded tunnel test, and the packet counters.
+- **About** (`AboutFragment`) — the explainer, plus the version line.
 
-`HowItWorksStrip` is the three-picture summary (spots / slows / earn back) at the
-top of Home's how-it-works card and of About. It is **drawn in Compose, not
-shipped as an image**: an asset would be wrong in one of the two themes, blur
-when scaled, and carry text that ignores the reader's font size. It falls from a
-row to a column under 340dp.
+The 7-day chart is **seven views sized in code**, not a chart library: seven
+rectangles do not justify a dependency, and they inherit the theme's colours for
+free. Today's bar is accent-coloured, the rest are outline.
 
-Content is capped at **640dp and centred** in `MainActivity` — one cap, inherited
-by every screen, so a tablet or unfolded phone gets a readable measure. Controls'
-packet counters live in a collapsed `CollapsibleCard`; the plain-English status
-is what the screen leads with.
+Onboarding and the live status share one card, because they answer the same
+question — "is this working?" — at different stages. `step()` renders "Step n of
+3" with the button that grants the missing permission.
+
+Controls' packet counters start collapsed behind a tap on the header; the
+plain-English status is what the screen leads with.
+
+The palette is fixed in `values/themes.xml` and `values/colors.xml` with no
+Material You: wallpaper colours can land on reds that make an encouraging
+dashboard read as a warning.
+
+**Simple mode is gone.** It was a second rendering of the same Home state, and
+`UiSettings` existed only to remember which one to show. One Home screen is
+enough; the explainer that justified the simple variant is still on About.
 
 ### The earn-back loop
 
@@ -127,33 +140,36 @@ to be wrong in. Do not "fix" this by writing per tick.
 means the user put the phone down or the service was not scheduled, and billing
 the real elapsed time would charge them for time they were not scrolling.
 
-The focus session is verified, not promised: `EarnViewModel` watches
-`SurfaceMonitor` and ends the session if a throttled surface appears. That check
-is free because detection already runs.
+The focus session is verified, not promised: `FocusSession.onFeedOpened` is
+called from the detector before the gate, so opening a feed breaks the session
+whatever ORBIS would then have done about it. That check is free because
+detection already runs.
 
-`HomeViewModel` owns both halves of the home screen: `state` for the slow-moving
-numbers and `protection` for the live ones. They are separate because the tunnel
-publishes counters several times a second, and `protection` maps those away
-before `distinctUntilChanged` so the home screen never wakes for traffic it does
-not display. **The packet counters are collected in `ControlsRoute` and nowhere
-else** — collecting them at the top of the composition, as the old tab layout
-did, recomposed every screen once a second.
+`EarnFragment` claims a finished session **only while it is resumed**
+(`isResumed()`). A session that finishes unseen is left to `FocusSessionWorker`,
+which posts a notification — an earlier version claimed it silently in the
+background and paid the user without ever telling them.
 
-`OrbisTheme` uses a fixed ORBIS palette with `dynamicColor = false`. Material You
-would repaint the app in wallpaper colours, which can land on reds that make an
-encouraging dashboard read as a warning.
+**There are no ViewModels.** The state the screens observe is process-wide
+(`SurfaceMonitor`, `ThrottleSettings`, `ClearTimeHolder`, `FocusSession`,
+`OrbisVpnService`, `Access`), because the accessibility service owns most of it
+and cannot be bound to. Each screen observes the holders it displays and nothing
+else: `HomeFragment` watches `OrbisVpnService.isRunning()` while
+`ControlsFragment` is the only thing that watches `tunnelStats()`, which is how
+the per-second counters stay off every other screen.
 
 ### Build setup
 
-- Single module (`:app`), Kotlin + Jetpack Compose
-- Gradle 9.4.1, AGP 9.2.1, Kotlin 2.2.10, Compose BOM 2026.02.01
+- Single module (`:app`), **Java only** — no Kotlin anywhere, build scripts included
+- Gradle 9.4.1 (Groovy DSL: `settings.gradle`, `build.gradle`), AGP 9.2.1
 - compileSdk/targetSdk 36, **minSdk 26**, Java 11 compatibility
 - Package root: `com.orbis.app`
 - `gradle/libs.versions.toml` is the source of truth for dependency versions — add deps there, not inline
 - Release build type sets `optimization { enable = false }` (minification explicitly off — non-default)
-- **AGP 9 built-in Kotlin support**: there is no `org.jetbrains.kotlin.android` plugin. Only the Android, Compose-compiler, and KSP plugins are applied. Don't add `kotlin-android` "to fix" something — it isn't missing.
-- KSP is pinned to an exact Kotlin build (`2.2.10-2.0.2`). Bump it and `kotlin` together or the build breaks.
-- `android.disallowKotlinSourceSets=false` in `gradle.properties` is **load-bearing**. Built-in Kotlin rejects the `kotlin.sourceSets` DSL that KSP uses to register its generated sources, so removing this flag breaks Room with `Using kotlin.sourceSets DSL to add Kotlin sources is not allowed with built-in Kotlin`. It's a suppression, not a fix — drop it once a KSP release supports AGP 9 natively.
+- **Only the Android application plugin is applied.** No Kotlin plugin, no Compose compiler, no KSP — Room uses `annotationProcessor`, because there is no Kotlin to process. `android.disallowKotlinSourceSets` and `kotlin.code.style` are gone from `gradle.properties` along with KSP.
+- **Groovy build scripts use assignment syntax** (`namespace = 'x'`, not `namespace 'x'`). Space-assignment is deprecated and removed in Gradle 10; `--warning-mode all` is clean as of the Java rewrite.
+- **Groovy single-quoted strings reject `\.`**, so `includeGroupByRegex` in `settings.gradle` uses slashy strings (`/com\.android.*/`).
+- No `viewBinding`: the fragments use `findViewById`. Enabling a build feature nothing uses is dead config.
 
 ### Don't bump AndroidX versions blindly
 
@@ -370,7 +386,7 @@ raise it again within a second.
 ### One repository, one query
 
 `UsageRepository.shared(context)` is process-wide and caches today's profile for
-`CACHE_TTL_MILLIS`. Each ViewModel used to construct its own, so a single resume
+`CACHE_TTL_MILLIS`. Each screen used to construct its own, so a single resume
 ran two full-day `queryEvents` scans concurrently and wrote the same four rows
 twice. `UsageStatsSource.eventsBetween` also takes a package filter — the raw
 stream carries every app on the device.
@@ -452,22 +468,24 @@ UsageStatsManager → UsageRepository → UsageProfile
                                           |
                         +-----------------+-----------------+
                         v                                   v
-                  ThrottleEngine                    DashboardViewModel
+                  ThrottleEngine                       HomeFragment
                         |                                   |
                         v                                   v
-              OrbisVpnService (VpnService)           Compose UI (stats)
+              OrbisVpnService (VpnService)            View UI (stats)
 
 FocusSession → FocusSessionWorker (WorkManager) → Notification
     → EarnRepository (Room) → ClearTimeHolder → the gate
 ```
 
 - **UsageRepository** — wraps `UsageStatsManager`, exposes daily/weekly per-app time
-- **ThrottleEngine** — plain Kotlin; takes a `UsageProfile`, produces throttle rules (which domains, how much delay)
+- **ThrottleEngine** — plain Java; takes a `UsageProfile`, produces throttle rules (which domains, how much delay)
 - **OrbisVpnService** — extends `android.net.VpnService`; owns the TUN interface, matches destinations against the domain list, forwards immediately or after a delay
 - **FocusSessionWorker** — `WorkManager` job that pays out a finished focus session
 - All persistence in a single Room database
 
-**Testability constraint:** keep the ranking algorithm and domain-matching logic as pure Kotlin, free of Android framework types, so they're unit-testable in `src/test`. The test plan depends on this.
+**Testability constraint:** keep the ranking algorithm and domain-matching logic as pure Java, free of Android framework types, so they're unit-testable in `src/test`. The test plan depends on this — 192 JVM tests cover it.
+
+One exception worth knowing: `StateHolder` publishes through `LiveData`, whose `postValue` needs a main looper. A JVM test that touches a holder (only `TcpFallbackTest` does) needs `InstantTaskExecutorRule` from `androidx.arch.core:core-testing`.
 
 ### Room entities
 
@@ -485,7 +503,7 @@ FocusSession → FocusSessionWorker (WorkManager) → Notification
 | VPN consent | Not a manifest permission — triggered by `VpnService.prepare()`. Declare the service with `BIND_VPN_SERVICE`. |
 | `POST_NOTIFICATIONS` | Runtime, Android 13+. The VPN's foreground notice and the focus-session payout. |
 
-`CAMERA` is **gone**, with the good-deed challenge that needed it. If anything ever wants the camera again, note that removing CameraX also removed the only thing pulling in **appcompat** — the nav drawables' `?attr/colorControlNormal` stopped resolving and had to come out. Compose tints those icons anyway.
+`CAMERA` is **gone**, with the good-deed challenge that needed it. If anything ever wants the camera again, note that removing CameraX also removed the only thing pulling in **appcompat** — the nav drawables' `?attr/colorControlNormal` stopped resolving and had to come out. Compose tinted those icons at the time; the View UI relies on `app:itemIconTint` on the navigation bar instead.
 
 `INTERNET` **is** required — corrected on device. The original reasoning ("the VPN intercepts other apps' traffic, it doesn't make calls of its own") holds for *interception* but not for *relaying*: the relay opens its own sockets to forward packets onward. Without it every `DatagramSocket()` throws `EPERM (Operation not permitted)`, the relay thread dies on its first packet, and the tunnel becomes a black hole that silently eats all traffic from the apps it captures — with no crash and nothing in logcat.
 
@@ -523,7 +541,7 @@ another:
 
 - **Do not run `connectedAndroidTest` on a phone someone uses.** It uninstalls
   ORBIS afterwards, taking the database and every permission grant with it.
-  Compile the source set instead: `./gradlew compileDebugAndroidTestKotlin`.
+  Compile the source set instead: `./gradlew compileDebugAndroidTestJavaWithJavac`.
 
 - **`install -r` keeps everything**: usage access, VPN consent, the enabled
   accessibility service and the database all survived updates in testing.

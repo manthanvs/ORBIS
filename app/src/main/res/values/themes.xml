@@ -1,5 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.ORBISOptimizedResponsibleBrowsingInterventionSystem" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.ORBISOptimizedResponsibleBrowsingInterventionSystem"
+        parent="Theme.MaterialComponents.NoActionBar">
+        <item name="colorPrimary">@color/orbis_accent</item>
+        <item name="colorPrimaryDark">@color/orbis_background</item>
+        <item name="colorAccent">@color/orbis_accent</item>
+        <item name="android:colorBackground">@color/orbis_background</item>
+        <item name="android:textColorPrimary">@color/orbis_text</item>
+        <item name="android:textColorSecondary">@color/orbis_text_muted</item>
+        <item name="android:statusBarColor">@color/orbis_background</item>
+        <item name="android:navigationBarColor">@color/orbis_surface</item>
+    </style>
+
+    <!-- A card: the repeated block every screen is built from. -->
+    <style name="OrbisCard">
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:padding">20dp</item>
+        <item name="android:layout_marginBottom">14dp</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <style name="OrbisTitle">
+        <item name="android:textColor">@color/orbis_text</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="OrbisBody">
+        <item name="android:textColor">@color/orbis_text_muted</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:lineSpacingExtra">3dp</item>
+    </style>
+
+    <style name="OrbisHero">
+        <item name="android:textColor">@color/orbis_accent</item>
+        <item name="android:textSize">40sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
 </resources>
