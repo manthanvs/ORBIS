@@ -31,6 +31,7 @@ import com.orbis.app.util.Background;
 import com.orbis.app.vpn.OrbisVpnService;
 
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashSet;
@@ -253,7 +254,12 @@ public class OrbisAccessibilityService extends AccessibilityService {
             if (info == null) {
                 return;
             }
-            if (info.packageNames != null && observed.size() == info.packageNames.length) {
+            // Compared by contents, not by count: discovering one build while
+            // another drops out leaves the size unchanged and would skip the
+            // update, so the service would keep watching a package that is gone
+            // and miss the one that arrived.
+            if (info.packageNames != null
+                    && observed.equals(new HashSet<>(Arrays.asList(info.packageNames)))) {
                 return;
             }
             info.packageNames = observed.toArray(new String[0]);

@@ -1,5 +1,6 @@
 package com.orbis.app.surface;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -79,6 +80,20 @@ public class AccessibilityConfigTest {
         for (String browser : BrowserPackages.ALL) {
             assertTrue(browser + " is missing from packageNames", observed.contains(browser));
         }
+    }
+
+    @Test
+    public void theRuntimeObservedSetIsExactlyWhatTheConfigDeclares() {
+        // OrbisAccessibilityService.observeInstalledBuilds() overwrites
+        // packageNames with VariantDiscovery's result plus the browsers, so the
+        // XML is only the privacy boundary if that runtime set agrees with it.
+        // It did not: discovery returned every TargetApp package, WhatsApp
+        // included, and the service widened itself to observe it.
+        Set<String> runtime = new HashSet<>(BrowserPackages.ALL);
+        runtime.addAll(TargetApp.getThrottleablePackages());
+
+        assertEquals(observed, runtime);
+        assertFalse(runtime.contains(TargetApp.WHATSAPP.getPackageName()));
     }
 
     @Test

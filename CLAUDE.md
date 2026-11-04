@@ -215,6 +215,20 @@ These are design intent, not implementation detail. Do not relax them without as
 
 - **Cover the build the user actually opens.** Mods are the real apps on real phones. `VariantDiscovery` registers any installed package that both handles the app's links *and* carries its view ids; the hardcoded `TargetApp.variants` are only a seed, needed because a ColorOS-hidden app (InstaPro) cannot be discovered. Detection, routing, usage and the level all follow the discovered build.
 
+- **The privacy boundary has to hold at runtime, not just in the XML.**
+  `observeInstalledBuilds()` replaces the config's `packageNames` with
+  `VariantDiscovery.run()` plus the browsers, which is the only way a mod
+  discovered after install gets observed at all. That means discovery's return
+  value *is* the boundary once the service is running. It returned
+  `TargetApp.getPackageNames()` until 2026-11-04 — every target app including
+  **WhatsApp** — so the running service observed the one package the config
+  deliberately omits (`observing 14 packages` in the log, against 13 in the XML).
+  Nothing was throttled as a result: detection returns `NORMAL` for WhatsApp and
+  `routeFor` never names it, both under test. But ORBIS was reading screens it
+  promises not to look at. It now returns `getThrottleablePackages()`, and
+  `AccessibilityConfigTest.theRuntimeObservedSetIsExactlyWhatTheConfigDeclares`
+  pins the runtime set to the XML so the two cannot drift apart again.
+
 - **An app on TCP is carried, not starved.** The packet relay drops TCP, so `OrbisVpnService` advertises `TcpProxy` on loopback via `Builder.setHttpProxy`: the routed app's TCP is terminated there, re-opened through a protected socket, and **paced** rather than dropped, so TCP's own flow control does the slowing. `TcpFallback` remains for traffic that ignores the proxy and can only be dropped — it stands ORBIS down for that app (10 min, doubling to an hour). A missed throttle is a far smaller failure than a frozen app.
 
 ## Performance invariants
@@ -499,7 +513,7 @@ One exception worth knowing: `StateHolder` publishes through `LiveData`, whose `
 | Permission | Notes |
 |---|---|
 | `PACKAGE_USAGE_STATS` | Done (Phase 1). See the gotcha below. |
-| `BIND_ACCESSIBILITY_SERVICE` | Done (Phase 2a). `flagReportViewIds` is mandatory or `viewIdResourceName` is always null and every rule silently stops matching. `packageNames` in the config is the privacy boundary. **adb can enable it** on this build — see the note below. |
+| `BIND_ACCESSIBILITY_SERVICE` | Done (Phase 2a). `flagReportViewIds` is mandatory or `viewIdResourceName` is always null and every rule silently stops matching. `packageNames` in the config is the privacy boundary — and `observeInstalledBuilds()` overwrites it at runtime, so the two must agree; see below. **adb can enable it** on this build — see the note below. |
 | VPN consent | Not a manifest permission — triggered by `VpnService.prepare()`. Declare the service with `BIND_VPN_SERVICE`. |
 | `POST_NOTIFICATIONS` | Runtime, Android 13+. The VPN's foreground notice and the focus-session payout. |
 
@@ -533,18 +547,43 @@ another:
 - **There is no `sqlite3` binary on the device.** Same workaround:
   `adb exec-out run-as com.orbis.app cat databases/orbis.db > local.db`.
 
-- **This app's own logcat tags are dropped.** `Log.i(TAG, …)` from `OrbisVpn`
-  and `OrbisSurface` mostly never appears, which is exactly why the packet
-  counters are surfaced on the Controls screen instead. Verify the tunnel from
-  `dumpsys connectivity` (`grep "InterfaceName: tun0"`, then its `Uids:`), not
-  from logcat. `ip link show tun0` returns nothing to the shell user here.
+- **This app's logcat does work — filter by pid.** The older note here said
+  ORBIS's tags were dropped. Re-measured 2026-11-04: `adb logcat -d --pid=$(adb
+  shell pidof com.orbis.app)` shows the process's output, and `-s OrbisSurface:V`
+  showed `connected; observing=13` the moment the service actually bound. The
+  earlier "dropped" reading was the service never having connected, so there was
+  nothing to print. Still verify the tunnel itself from `dumpsys connectivity`
+  (`grep "InterfaceName: tun0"`, then its `Uids:`) — that is the OS's own word
+  for what is routed, which no log can contradict. `ip link show tun0` returns
+  nothing to the shell user here.
 
 - **Do not run `connectedAndroidTest` on a phone someone uses.** It uninstalls
   ORBIS afterwards, taking the database and every permission grant with it.
   Compile the source set instead: `./gradlew compileDebugAndroidTestJavaWithJavac`.
 
-- **`install -r` keeps everything**: usage access, VPN consent, the enabled
-  accessibility service and the database all survived updates in testing.
+- **`install -r` keeps the data but does NOT re-bind the accessibility
+  service.** The database, VPN consent and the entry in
+  `enabled_accessibility_services` all survive — but the service is not
+  reconnected, so `onServiceConnected` never runs, no events arrive, and ORBIS
+  looks enabled while detecting nothing. Measured 2026-11-04: twenty minutes of
+  Reels with the setting on and `dumpsys accessibility` listing ORBIS under
+  "Bound services", and `SurfaceMonitor` was still empty ("Open Instagram,
+  YouTube or Snapchat and this will fill in" on Controls). Toggling the entry out
+  of the list and back in fixed it instantly. **Re-toggle after every install**,
+  appending so nothing else is switched off:
+
+  ```bash
+  ORBIS=com.orbis.app/com.orbis.app.surface.OrbisAccessibilityService
+  EXISTING=$(adb shell settings get secure enabled_accessibility_services)
+  adb shell settings put secure enabled_accessibility_services \
+    "$(echo "$EXISTING" | tr ':' '\n' | grep -v "^$ORBIS$" | paste -sd:)"
+  adb shell settings put secure enabled_accessibility_services "$EXISTING"
+  ```
+
+  Confirm it took with `adb logcat -d -s OrbisSurface:V` — a connected service
+  prints `connected; observing=N`. No log line means it is still not bound, and
+  nothing will be throttled.
+
   `allowBackup=true` also means a *fresh* install restores the last Google
   backup — the first install on this phone came up with rows from July.
 

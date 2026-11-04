@@ -66,8 +66,17 @@ public final class VariantDiscovery {
     }
 
     /**
-     * Registers every build found, and returns the full set of packages ORBIS
-     * should now observe and may route.
+     * Registers every build found, and returns the packages ORBIS should now
+     * observe and may route.
+     *
+     * <p><b>Throttleable builds only</b>, so WhatsApp is never in it. This
+     * returned {@code getPackageNames()} once, which also carries WhatsApp, and
+     * the caller hands the result straight to {@code setServiceInfo} - so the
+     * detector widened at runtime to observe the one app the config file
+     * deliberately leaves out. Nothing was ever throttled as a result (detection
+     * returns NORMAL for it and {@code routeFor} excludes it), but
+     * {@code packageNames} is the privacy boundary, and it only means anything
+     * if the running service honours it too.
      */
     public static Set<String> run(Context context) {
         PackageManager packageManager = context.getPackageManager();
@@ -94,7 +103,7 @@ public final class VariantDiscovery {
             }
         }
 
-        return TargetApp.getPackageNames();
+        return TargetApp.getThrottleablePackages();
     }
 
     private static Set<String> handlersOf(PackageManager packageManager, String url) {
