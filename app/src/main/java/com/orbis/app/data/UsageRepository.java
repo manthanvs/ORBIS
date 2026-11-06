@@ -151,9 +151,10 @@ public final class UsageRepository {
      * What the last {@link #BASELINE_DAYS} of short-form actually looked like,
      * per day.
      *
-     * <p>This floors the throttle level. Without it every midnight would drop a
-     * settled habit back to level 1 and spend the morning nudging someone who is
-     * well past nudging. Today is excluded: it is only part-way through.
+     * <p>This sets the throttle level's <i>ramp</i> - how fast today climbs the
+     * ladder - so a settled habit climbs out of its daily fresh start sooner
+     * than a light one does. Today is excluded: it is only part-way through, and
+     * a day that raised its own ramp would compound.
      */
     private long recentAverageMillis(LocalDate today) {
         List<DailyTotal> days =

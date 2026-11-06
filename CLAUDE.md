@@ -209,9 +209,23 @@ These are design intent, not implementation detail. Do not relax them without as
 - **Entirely on-device.** All data local; no server component, no cloud storage, no sync.
 - **Dashboard copy is encouraging, never shame-based.** Restriction alone gets uninstalled; the positive redirect is the whole thesis.
 
+- **The buffer is handed back daily; the week sets the ramp, not the floor.** At
+  midnight everyone returns to level 1. The trailing 7-day average (excluding
+  today, throttleable apps only) is run through the same ladder and its level
+  number becomes a **multiplier** on today's minutes — `scoreMillis = today ×
+  rampFor(baseline)`, 1× to 5×. A 2.5 h/day habit therefore reaches Immune after
+  30 real minutes where a light week needs 150. This replaced
+  `max(today, week)`: the floor kept a heavy user at their level overnight, so
+  the level never moved and stopped being feedback — it read as a setting. The
+  ramp must stay keyed on the *week*, never on today: a day raising its own ramp
+  compounds, and one long morning lands on Immune by accident rather than by
+  pattern. It must also stay symmetric — a lighter week genuinely slows the
+  climb back down, because a ratchet the user cannot work off breaks the lever
+  invariant below.
+
 - **The user always holds the lever.** ORBIS slows a feed; it never blocks one, and clear time earned through `EarnAction` buys it back to full speed. Anything that removes the option — a hard block, a lockout, a penalty that cannot be worked off — breaks the thesis, because losing an option provokes more pushback than the habit does. Credit **expires nightly** and is **capped daily**: a bankable balance turns a daily trade into a savings account, and an uncapped one rewards whoever grinds hardest.
 - **The TUN interface must be released on stop.** A VPN service that leaks its interface throttles the user's phone after the app is closed.
-- **Friction pulses; it never cuts off.** Every **3 s** the feed's downloads are squeezed to a ~8 KB/s trickle, then released to a capped gap. How long depends on `ThrottleLevel` (1 Nudge 0.9 s → 5 Immune **2.8 s of every 3**, gap 600 → **24 KB/s**), chosen by today's short-form minutes across *all* apps and floored by the last 7 days' average so midnight does not reset a settled habit. Never zero, never a block: a feed that feels broken gets the app uninstalled. *(These are the retuned figures from `ThrottleLevel`; the period came down from 5 s because at five the player had a long enough gap to refill its buffer and ride through the next squeeze.)*
+- **Friction pulses; it never cuts off.** Every **3 s** the feed's downloads are squeezed to a ~8 KB/s trickle, then released to a capped gap. How long depends on `ThrottleLevel` (1 Nudge 0.9 s → 5 Immune **2.8 s of every 3**, gap 600 → **24 KB/s**), chosen by today's short-form minutes across *all* apps, **multiplied by the week's ramp** (see below). Never zero, never a block: a feed that feels broken gets the app uninstalled. *(These are the retuned figures from `ThrottleLevel`; the period came down from 5 s because at five the player had a long enough gap to refill its buffer and ride through the next squeeze.)*
 
 - **Cover the build the user actually opens.** Mods are the real apps on real phones. `VariantDiscovery` registers any installed package that both handles the app's links *and* carries its view ids; the hardcoded `TargetApp.variants` are only a seed, needed because a ColorOS-hidden app (InstaPro) cannot be discovered. Detection, routing, usage and the level all follow the discovered build.
 

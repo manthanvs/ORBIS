@@ -116,15 +116,37 @@ public final class ThrottleEngine {
     }
 
     /**
-     * Today's short-form minutes, floored by the recent daily average.
+     * How many ladder steps one real minute of today is worth, set by the week.
      *
-     * <p>Today alone would drop everyone back to level 1 every midnight, so a
-     * settled habit would spend each morning being nudged. The floor makes the
-     * ladder a property of the account rather than of the hour: it only comes
-     * down as the recent average does.
+     * <p>The week's own daily average, run through the same ladder, gives 1x for
+     * a light week up to 5x for a settled two-and-a-half-hours-a-day habit.
+     *
+     * <p>Deliberately the week and not today: minutes that raised their own ramp
+     * would compound, and one long morning would arrive at Immune by accident
+     * rather than by pattern. The baseline excludes today for this reason.
+     */
+    public static int rampFor(long baselineMillis) {
+        return ThrottleLevel.forMinutes(Math.max(baselineMillis, 0L) / 60_000L).getNumber();
+    }
+
+    /**
+     * Today's short-form minutes, climbed at the pace the week has earned.
+     *
+     * <p>This replaced {@code max(today, week)}. The floor held a heavy user at
+     * their level through the night, which kept the ladder steady but left no
+     * daily fresh start - and a level that never moves stops being feedback and
+     * becomes a setting. Multiplying gives both: the <b>buffer is handed back
+     * every midnight</b>, and a heavy week is answered by climbing out of it
+     * sooner rather than by starting above it.
+     *
+     * <p>At 5x a 150-minute-a-day habit reaches Immune after 30 real minutes; at
+     * 1x a light user needs the full 150. The levels are still walked in order
+     * either way, so the friction ramps up gradually instead of landing on
+     * Immune at once - and today still counts on its own, so a quiet week cannot
+     * hold a genuinely heavy day down.
      */
     private static long scoreMillis(UsageProfile profile, long baselineMillis) {
-        return Math.max(shortFormMillis(profile), baselineMillis);
+        return shortFormMillis(profile) * rampFor(baselineMillis);
     }
 
     /**

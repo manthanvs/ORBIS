@@ -63,19 +63,53 @@ public class ThrottleLevelTest {
     }
 
     @Test
-    public void theRecentAverageFloorsTheLevelSoMidnightDoesNotResetIt() {
-        // Two hours a day for a week, five minutes so far today.
-        ThrottleLevel level =
-                ThrottleEngine.levelFor(minutes("com.instagram.android", 5), 120 * 60_000L);
+    public void theBufferIsHandedBackEveryMidnightHoweverHeavyTheWeekWas() {
+        // Nothing scrolled yet today is level 1, even on top of two and a half
+        // hours a day for a week. The old model floored the level at the week's
+        // and so opened the morning at Immune.
+        assertEquals(
+                ThrottleLevel.NUDGE,
+                ThrottleEngine.levelFor(minutes("com.instagram.android", 0), 150 * 60_000L));
+    }
 
-        // 120 minutes a day is Grind - and nowhere near the Nudge that five
-        // minutes alone would have earned.
-        assertEquals(ThrottleLevel.GRIND, level);
+    @Test
+    public void aHeavyWeekClimbsTheLadderFasterThanALightOneDoes() {
+        // The same 30 minutes today, against two different weeks. This is the
+        // whole point of the ramp: heavier pattern, sooner friction.
+        UsageProfile today = minutes("com.instagram.android", 30);
+
+        assertEquals(ThrottleLevel.DRAG, ThrottleEngine.levelFor(today, 0L));
+        assertEquals(ThrottleLevel.IMMUNE, ThrottleEngine.levelFor(today, 150 * 60_000L));
+    }
+
+    @Test
+    public void theRampIsTheWeeksOwnLevelSoItEasesOffWithThePatternToo() {
+        assertEquals(1, ThrottleEngine.rampFor(0L));
+        assertEquals(2, ThrottleEngine.rampFor(20 * 60_000L));
+        assertEquals(3, ThrottleEngine.rampFor(45 * 60_000L));
+        assertEquals(4, ThrottleEngine.rampFor(90 * 60_000L));
+        assertEquals(5, ThrottleEngine.rampFor(150 * 60_000L));
+
+        // Not a ratchet: a lighter week genuinely slows the climb back down.
+        assertEquals(1, ThrottleEngine.rampFor(19 * 60_000L));
+    }
+
+    @Test
+    public void theLadderIsWalkedStepByStepEvenAtTheHeaviestRamp() {
+        // Gradual, not a jump to the top: the user sees themselves climbing.
+        long heavyWeek = 150 * 60_000L;
+        String app = "com.instagram.android";
+
+        assertEquals(ThrottleLevel.NUDGE, ThrottleEngine.levelFor(minutes(app, 3), heavyWeek));
+        assertEquals(ThrottleLevel.DRAG, ThrottleEngine.levelFor(minutes(app, 5), heavyWeek));
+        assertEquals(ThrottleLevel.STUTTER, ThrottleEngine.levelFor(minutes(app, 10), heavyWeek));
+        assertEquals(ThrottleLevel.GRIND, ThrottleEngine.levelFor(minutes(app, 20), heavyWeek));
+        assertEquals(ThrottleLevel.IMMUNE, ThrottleEngine.levelFor(minutes(app, 30), heavyWeek));
     }
 
     @Test
     public void aQuietWeekDoesNotHoldAHeavyDayDown() {
-        // The floor only ever raises the level; today still counts on its own.
+        // Today always counts on its own - a light ramp is still a climb.
         ThrottleLevel level =
                 ThrottleEngine.levelFor(minutes("com.instagram.android", 200), 0L);
 

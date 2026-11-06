@@ -91,9 +91,25 @@ A constant delay could not be felt: added latency barely dents a flowing video s
 | 4 · Grind | 90 min | 1.8 s | 150 KB/s |
 | 5 · Immune | 150 min | 2.8 s | 24 KB/s |
 
+Those thresholds are **effective** minutes, not real ones — see the ramp below.
+
 During a squeeze the download is held to a ~8 KB/s trickle — **never zero**, at any level. A feed that feels broken gets the app uninstalled; a feed that stutters gets noticed. The gaps between squeezes are capped too: left at full speed, Instagram pulled a whole reel in a 2-second gap and played straight through the next squeeze.
 
-The level is floored by the last 7 days' average, so midnight doesn't reset a settled habit.
+### The daily buffer, and the weekly ramp
+
+Every day hands the buffer back: at midnight everyone returns to **level 1**, whatever last week looked like. What the week sets is not where you start but **how fast you climb** — its own daily average, run through the same ladder, becomes a multiplier on today's minutes:
+
+| Last 7 days | Ramp | Reaches Immune after |
+|---|---|---|
+| under 20 min/day | ×1 | 150 min today |
+| 20–45 | ×2 | 75 min |
+| 45–90 | ×3 | 50 min |
+| 90–150 | ×4 | 38 min |
+| 150+ | ×5 | 30 min |
+
+So a settled two-hour-a-day habit still gets its quiet morning, then climbs out of it four times as quickly; a light week barely climbs at all. The levels are always walked in order — the friction ramps up gradually rather than landing on Immune at once.
+
+It is not a ratchet. The ramp is recomputed from the trailing week every refresh, so a genuinely lighter week slows the climb back down on its own. Today still counts unaided, so a quiet week can't hold a heavy day down. And the week deliberately **excludes today** — minutes that raised their own ramp would compound, and one long morning would hit Immune by accident rather than by pattern.
 
 ---
 

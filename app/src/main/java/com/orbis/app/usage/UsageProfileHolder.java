@@ -20,7 +20,7 @@ public final class UsageProfileHolder {
             new StateHolder<>(UsageProfile.EMPTY);
 
     /**
-     * The recent daily short-form average, which floors the throttle level.
+     * The recent daily short-form average, which sets the throttle level's ramp.
      *
      * <p>Without it every midnight would drop a settled habit back to level 1 and
      * spend the morning nudging someone who is well past nudging.

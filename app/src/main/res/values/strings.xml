@@ -45,7 +45,7 @@
     <string name="home_week_caption">%1$s in the tracked apps this week. Today is the bar on the right.</string>
     <string name="home_level_title">Friction level %1$d — %2$s</string>
     <string name="home_level_body">Picked from %1$s of short-form video today. While a feed is open it is squeezed for %2$s s of every %3$s s, then let go.</string>
-    <string name="home_level_body_week">Picked from your last 7 days, averaging %1$s a day — today is %2$s so far. While a feed is open it is squeezed for %3$s s of every %4$s s, then let go.</string>
+    <string name="home_level_body_ramp">%1$s of short-form video today. Your last 7 days average %2$s a day, so today climbs %3$d× as fast — and every day starts back at level 1. While a feed is open it is squeezed for %4$s s of every %5$s s, then let go.</string>
     <string name="home_where_title">Where today went</string>
     <string name="home_nothing_tracked">Nothing tracked yet today.</string>
     <string name="home_slowing_body">%1$s is on screen, and ORBIS is squeezing it.</string>

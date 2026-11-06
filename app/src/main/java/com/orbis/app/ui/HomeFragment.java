@@ -76,7 +76,7 @@ public class HomeFragment extends Fragment {
     private ReclaimedSummary summary;
     private ThrottleLevel level = ThrottleLevel.NUDGE;
 
-    /** The last 7 days' daily average, which floors the level. */
+    /** The last 7 days' daily average, which sets how fast today climbs. */
     private long baselineMillis;
 
     @Nullable
@@ -273,18 +273,18 @@ public class HomeFragment extends Fragment {
         levelTitle.setText(
                 getString(R.string.home_level_title, level.getNumber(), level.getLabel()));
 
-        // Name whichever of the two actually set the level. The level is the
-        // higher of today's short-form minutes and the last 7 days' average, so
-        // on a morning after a heavy week it reads "level 4" off a baseline of
-        // 1h 40m while today is three minutes old - and quoting today's figure
-        // as the reason made the card look broken.
+        // The week sets how fast today climbs the ladder, not where it starts,
+        // so the card names the multiplier and today's real figure. Quoting the
+        // baseline on its own read as though yesterday were being throttled.
         long today = shortFormMillis();
-        if (baselineMillis > today) {
+        int ramp = ThrottleEngine.rampFor(baselineMillis);
+        if (ramp > 1) {
             levelBody.setText(
                     getString(
-                            R.string.home_level_body_week,
-                            DurationFormatter.format(baselineMillis),
+                            R.string.home_level_body_ramp,
                             DurationFormatter.format(today),
+                            DurationFormatter.format(baselineMillis),
+                            ramp,
                             seconds(level.getFriction().getSqueezeMillis()),
                             seconds(level.getFriction().getPeriodMillis())));
         } else {
