@@ -40,6 +40,43 @@ public final class ThrottleEngine {
     /** The friction the manual 30-second relay test runs at: the heaviest there is. */
     public static final Friction TEST_FRICTION = ThrottleLevel.IMMUNE.getFriction();
 
+    /**
+     * The notification shade, quick settings, and heads-up notifications.
+     *
+     * <p>All three belong to SystemUI and are drawn <i>over</i> whatever app is
+     * running, which stays the foreground task underneath.
+     */
+    public static final String OVERLAY_PACKAGE = "com.android.systemui";
+
+    /**
+     * How long a system overlay may cover a feed before the tunnel comes down.
+     *
+     * <p>Long enough to read a notification, short enough that a shade left open
+     * on a table does not hold the tunnel up indefinitely. Screen-off stands
+     * everything down regardless, and the watchdog stays armed throughout.
+     */
+    public static final long OVERLAY_HOLD_MILLIS = 45_000L;
+
+    /**
+     * Whether a system overlay should hold the last verdict rather than replace it.
+     *
+     * <p>Pulling the notification shade down over Reels makes SystemUI the active
+     * window. Read as an ordinary surface change that is {@code NORMAL}, so the
+     * gate took the tunnel down - while Instagram, still the foreground task
+     * behind the shade, went on buffering the next reels at full speed. Swiping
+     * the shade down was therefore a way to switch the throttle off and keep
+     * watching, which is exactly the move the friction exists to discourage.
+     *
+     * <p>So an overlay is treated as <i>no new information</i>: the previous
+     * verdict and the tunnel both stand. Bounded, because a verdict held forever
+     * would be a tunnel nothing takes down.
+     */
+    public static boolean overlayHoldsVerdict(String activePackage, long millisSinceFeed) {
+        return OVERLAY_PACKAGE.equals(activePackage)
+                && millisSinceFeed >= 0L
+                && millisSinceFeed < OVERLAY_HOLD_MILLIS;
+    }
+
     private ThrottleEngine() {
         // No instances: the policy is stateless.
     }

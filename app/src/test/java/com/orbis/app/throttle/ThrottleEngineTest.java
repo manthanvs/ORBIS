@@ -118,6 +118,47 @@ public class ThrottleEngineTest {
         assertEquals(ThrottleEngine.MAX_DELAY_MILLIS, rule.getDelayMillis());
     }
 
+    // ------------------------------------------------------- overlays (the shade)
+
+    @Test
+    public void theShadeOverAFeedHoldsTheVerdictRatherThanClearingIt() {
+        // The bypass this exists for: pulling the notification shade down over
+        // Reels made SystemUI the active window, the gate read NORMAL and took
+        // the tunnel down, and Instagram - still the foreground task behind the
+        // shade - buffered the next reels at full speed.
+        assertTrue(ThrottleEngine.overlayHoldsVerdict(ThrottleEngine.OVERLAY_PACKAGE, 0L));
+        assertTrue(ThrottleEngine.overlayHoldsVerdict(ThrottleEngine.OVERLAY_PACKAGE, 20_000L));
+    }
+
+    @Test
+    public void theHoldIsBoundedSoSomethingAlwaysTakesTheTunnelDown() {
+        // A verdict held forever is a tunnel nothing takes down.
+        assertFalse(
+                ThrottleEngine.overlayHoldsVerdict(
+                        ThrottleEngine.OVERLAY_PACKAGE, ThrottleEngine.OVERLAY_HOLD_MILLIS));
+        assertFalse(
+                ThrottleEngine.overlayHoldsVerdict(
+                        ThrottleEngine.OVERLAY_PACKAGE, ThrottleEngine.OVERLAY_HOLD_MILLIS * 10));
+    }
+
+    @Test
+    public void anOrdinaryAppIsNeverHeldThrough() {
+        // Leaving for a real app is a real surface change: the tunnel must come
+        // down on it, which is what keeps teardown within a few seconds.
+        assertFalse(ThrottleEngine.overlayHoldsVerdict("com.android.launcher", 0L));
+        assertFalse(ThrottleEngine.overlayHoldsVerdict(TargetApp.WHATSAPP.getPackageName(), 0L));
+        assertFalse(ThrottleEngine.overlayHoldsVerdict("com.android.chrome", 1_000L));
+    }
+
+    @Test
+    public void theShadeHoldsNothingWhenNoFeedWasEverSeen() {
+        // lastFeedSeenMillis is zero before the first feed and is reset on
+        // screen-off, which makes the elapsed time enormous rather than small.
+        assertFalse(
+                ThrottleEngine.overlayHoldsVerdict(
+                        ThrottleEngine.OVERLAY_PACKAGE, Long.MAX_VALUE / 2));
+    }
+
     // ------------------------------------------------------------------ routing
 
     @Test

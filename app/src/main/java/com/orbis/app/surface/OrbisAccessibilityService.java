@@ -311,6 +311,17 @@ public class OrbisAccessibilityService extends AccessibilityService {
             }
             String activePackage = rawPackage.toString();
 
+            // A system overlay covers the app without replacing it. Treat it as
+            // no new information: hold the last verdict, and the tunnel with it.
+            // Checked before collectSignals, which is a handful of binder calls
+            // into a window whose answer we are going to discard anyway.
+            if (ThrottleEngine.overlayHoldsVerdict(activePackage, now - lastFeedSeenMillis)) {
+                // The watchdog is what will eventually take the tunnel down, so
+                // it has to stay armed through the hold.
+                scheduleWatchdog();
+                return;
+            }
+
             SurfaceSignals signals = collectSignals(root, activePackage);
             Surface surface = SurfaceDetector.detect(signals);
 

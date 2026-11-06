@@ -76,6 +76,9 @@ public class HomeFragment extends Fragment {
     private ReclaimedSummary summary;
     private ThrottleLevel level = ThrottleLevel.NUDGE;
 
+    /** The last 7 days' daily average, which floors the level. */
+    private long baselineMillis;
+
     @Nullable
     @Override
     public View onCreateView(
@@ -168,15 +171,15 @@ public class HomeFragment extends Fragment {
                     UsageProfile loaded;
                     ReclaimedSummary loadedSummary;
                     ThrottleLevel loadedLevel;
+                    long loadedBaseline;
                     try {
                         UsageRepository usage = UsageRepository.shared(app);
                         loaded = usage.refreshToday();
                         Map<LocalDate, Long> history =
                                 usage.dailyHistory(ReclaimedTime.BASELINE_WINDOW_DAYS + 1);
                         loadedSummary = ReclaimedTime.summarize(history, LocalDate.now());
-                        loadedLevel =
-                                ThrottleEngine.levelFor(
-                                        loaded, UsageProfileHolder.baselineMillis().get());
+                        loadedBaseline = UsageProfileHolder.baselineMillis().get();
+                        loadedLevel = ThrottleEngine.levelFor(loaded, loadedBaseline);
                         EarnRepository.shared(app).refresh();
                     } catch (RuntimeException failure) {
                         return;
@@ -194,6 +197,7 @@ public class HomeFragment extends Fragment {
                                 profile = loaded;
                                 summary = loadedSummary;
                                 level = loadedLevel;
+                                baselineMillis = loadedBaseline;
                                 renderNumbers();
                             });
                 });
@@ -268,12 +272,29 @@ public class HomeFragment extends Fragment {
 
         levelTitle.setText(
                 getString(R.string.home_level_title, level.getNumber(), level.getLabel()));
-        levelBody.setText(
-                getString(
-                        R.string.home_level_body,
-                        DurationFormatter.format(shortFormMillis()),
-                        seconds(level.getFriction().getSqueezeMillis()),
-                        seconds(level.getFriction().getPeriodMillis())));
+
+        // Name whichever of the two actually set the level. The level is the
+        // higher of today's short-form minutes and the last 7 days' average, so
+        // on a morning after a heavy week it reads "level 4" off a baseline of
+        // 1h 40m while today is three minutes old - and quoting today's figure
+        // as the reason made the card look broken.
+        long today = shortFormMillis();
+        if (baselineMillis > today) {
+            levelBody.setText(
+                    getString(
+                            R.string.home_level_body_week,
+                            DurationFormatter.format(baselineMillis),
+                            DurationFormatter.format(today),
+                            seconds(level.getFriction().getSqueezeMillis()),
+                            seconds(level.getFriction().getPeriodMillis())));
+        } else {
+            levelBody.setText(
+                    getString(
+                            R.string.home_level_body,
+                            DurationFormatter.format(today),
+                            seconds(level.getFriction().getSqueezeMillis()),
+                            seconds(level.getFriction().getPeriodMillis())));
+        }
 
         // The chart and the reclaimed figure answer different questions, so they
         // appear independently: a couple of recorded days are worth drawing long
