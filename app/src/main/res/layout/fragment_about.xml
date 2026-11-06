@@ -126,6 +126,25 @@
                 style="@style/OrbisTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:text="@string/about_pace_title" />
+
+            <TextView
+                style="@style/OrbisBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/about_pace_body" />
+        </LinearLayout>
+
+        <LinearLayout
+            style="@style/OrbisCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <TextView
+                style="@style/OrbisTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:text="@string/about_limits_title" />
 
             <TextView
