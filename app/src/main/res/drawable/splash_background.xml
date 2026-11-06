@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The pre-Android-12 splash. On 12 and above the platform draws its own from
+    the windowSplashScreen attributes in values-v31, so this is never used
+    there - two splashes would otherwise show, one after the other.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/orbis_background" />
+    <item
+        android:drawable="@drawable/ic_launcher_foreground"
+        android:gravity="center"
+        android:width="192dp"
+        android:height="192dp" />
+</layer-list>

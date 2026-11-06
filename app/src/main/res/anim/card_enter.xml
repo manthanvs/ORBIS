@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One card arriving. Short and small on purpose: the screen is a column of
+    text, and a long slide would make every tab switch feel slower than it is.
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/decelerate_quint">
+
+    <alpha
+        android:duration="180"
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0" />
+
+    <translate
+        android:duration="220"
+        android:fromYDelta="6%p"
+        android:toYDelta="0" />
+</set>

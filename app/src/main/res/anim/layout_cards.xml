@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Staggers card_enter down the column, 8% of the duration apart. -->
+<layoutAnimation xmlns:android="http://schemas.android.com/apk/res/android"
+    android:animation="@anim/card_enter"
+    android:animationOrder="normal"
+    android:delay="8%" />

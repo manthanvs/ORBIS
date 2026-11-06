@@ -57,6 +57,11 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
+        // Back to the real theme before anything is laid out. The activity is
+        // launched with the splash theme so the system has something to show
+        // while the process starts; leaving it set would keep the splash
+        // drawable as the window background behind every screen.
+        setTheme(R.style.Theme_ORBISOptimizedResponsibleBrowsingInterventionSystem);
         super.onCreate(savedInstanceState);
         ThrottleSettings.init(this);
         setContentView(R.layout.activity_main);
@@ -175,6 +180,9 @@ public class MainActivity extends AppCompatActivity {
         selectedTab = itemId;
         getSupportFragmentManager()
                 .beginTransaction()
+                // A cross-fade rather than a slide: the tabs are peers, so
+                // nothing should imply a direction between them.
+                .setCustomAnimations(R.anim.fade_in, R.anim.fade_out)
                 .replace(R.id.content, fragment)
                 .commit();
     }

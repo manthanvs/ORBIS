@@ -13,6 +13,15 @@
         <item name="android:navigationBarColor">@color/orbis_surface</item>
     </style>
 
+    <!--
+        Shown while the process starts. MainActivity swaps back to the real
+        theme in onCreate, before any content is laid out.
+    -->
+    <style name="Theme.Orbis.Splash"
+        parent="Theme.ORBISOptimizedResponsibleBrowsingInterventionSystem">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+
     <!-- A card: the repeated block every screen is built from. -->
     <style name="OrbisCard">
         <item name="android:background">@drawable/bg_card</item>

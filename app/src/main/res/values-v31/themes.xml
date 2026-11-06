@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Android 12 and above draw the splash themselves from these attributes,
+        so the legacy windowBackground is deliberately not set here: setting
+        both shows the icon twice, once per mechanism.
+    -->
+    <style name="Theme.Orbis.Splash"
+        parent="Theme.ORBISOptimizedResponsibleBrowsingInterventionSystem">
+        <item name="android:windowSplashScreenBackground">@color/orbis_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/orbis_surface</item>
+    </style>
+</resources>
