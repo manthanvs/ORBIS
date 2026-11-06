@@ -66,13 +66,12 @@ public class ControlsFragment extends Fragment {
         detectionButton.setOnClickListener(
                 v -> startActivity(AccessibilityAccess.settingsIntent()));
 
-        view.findViewById(R.id.details_header)
-                .setOnClickListener(
-                        v ->
-                                detailsBody.setVisibility(
-                                        detailsBody.getVisibility() == View.VISIBLE
-                                                ? View.GONE
-                                                : View.VISIBLE));
+        // A bare heading gives no hint that it opens, so the caret is the
+        // affordance: it points down when there is something to reveal.
+        TextView detailsHeader = view.findViewById(R.id.details_header);
+        showDetails(detailsHeader, false);
+        detailsHeader.setOnClickListener(
+                v -> showDetails(detailsHeader, detailsBody.getVisibility() != View.VISIBLE));
 
         testButton.setOnClickListener(
                 v -> {
@@ -187,6 +186,12 @@ public class ControlsFragment extends Fragment {
                         stats.getTcpCarried(),
                         stats.getBytesIn(),
                         stats.getActiveFlows()));
+    }
+
+    private void showDetails(TextView header, boolean open) {
+        detailsBody.setVisibility(open ? View.VISIBLE : View.GONE);
+        header.setText(
+                getString(open ? R.string.controls_details_open : R.string.controls_details_shut));
     }
 
     private String appLabel(String packageName) {

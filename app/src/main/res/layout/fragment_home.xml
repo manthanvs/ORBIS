@@ -9,7 +9,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/screen_gutter">
 
         <TextView
             android:layout_width="wrap_content"
@@ -97,11 +97,15 @@
                 android:textSize="14sp" />
         </LinearLayout>
 
-        <!-- The 7-day trend. Bars are added in code, one per day. -->
+        <!-- The 7-day trend. Bars are added in code, one per day. Hidden
+             entirely until there is something to draw, because a heading over
+             an empty 110dp box reads as a broken chart. -->
         <LinearLayout
+            android:id="@+id/week_card"
             style="@style/OrbisCard"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content">
+            android:layout_height="wrap_content"
+            android:visibility="gone">
 
             <TextView
                 style="@style/OrbisTitle"

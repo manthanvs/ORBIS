@@ -3,12 +3,16 @@ package com.orbis.app;
 import android.content.Intent;
 import android.net.VpnService;
 import android.os.Bundle;
+import android.view.View;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
@@ -78,6 +82,7 @@ public class MainActivity extends AppCompatActivity {
                         });
 
         BottomNavigationView nav = findViewById(R.id.bottom_nav);
+        applyWindowInsets(nav);
         nav.setOnItemSelectedListener(
                 item -> {
                     show(item.getItemId());
@@ -121,6 +126,39 @@ public class MainActivity extends AppCompatActivity {
     protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
         outState.putInt(STATE_TAB, selectedTab);
+    }
+
+    /**
+     * Keeps the content clear of the status bar, the gesture bar and any cutout.
+     *
+     * <p>targetSdk 36 means Android draws this window edge to edge and ignores
+     * the theme's bar colours, so without this the first card sits behind the
+     * clock and the navigation bar's labels sit under the gesture pill - which
+     * is exactly how it rendered on CPH2585 before this was added.
+     *
+     * <p>The insets are read once on the root and split: vertical padding goes
+     * to whichever view is against that edge, and horizontal padding goes to
+     * both, because in landscape the cutout is at one side.
+     */
+    private void applyWindowInsets(View nav) {
+        View content = findViewById(R.id.content);
+        int navPaddingBottom = nav.getPaddingBottom();
+
+        ViewCompat.setOnApplyWindowInsetsListener(
+                findViewById(R.id.root),
+                (view, windowInsets) -> {
+                    Insets bars =
+                            windowInsets.getInsets(
+                                    WindowInsetsCompat.Type.systemBars()
+                                            | WindowInsetsCompat.Type.displayCutout());
+                    content.setPadding(bars.left, bars.top, bars.right, 0);
+                    nav.setPadding(
+                            bars.left,
+                            nav.getPaddingTop(),
+                            bars.right,
+                            navPaddingBottom + bars.bottom);
+                    return windowInsets;
+                });
     }
 
     private void show(int itemId) {

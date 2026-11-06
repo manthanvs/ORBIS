@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        The readable measure. Every screen is a column of body text, and a line
+        that runs the full width of a tablet, an unfolded phone, or a phone whose
+        display size has been turned down is tight to read. BoundedFrameLayout
+        applies this once in MainActivity and every fragment inherits it.
+    -->
+    <dimen name="content_max_width">640dp</dimen>
+
+    <!-- Gutter either side of the content. -->
+    <dimen name="screen_gutter">16dp</dimen>
+
+    <!-- Padding inside a card. -->
+    <dimen name="card_padding">20dp</dimen>
+</resources>

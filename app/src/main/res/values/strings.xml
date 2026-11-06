@@ -44,7 +44,7 @@
     <string name="home_week_title">Your last 7 days</string>
     <string name="home_week_caption">%1$s in the tracked apps this week. Today is the bar on the right.</string>
     <string name="home_level_title">Friction level %1$d — %2$s</string>
-    <string name="home_level_body">Picked from %1$s of short-form video today. While a feed is open it is squeezed for %2$s of every %3$s seconds, then let go.</string>
+    <string name="home_level_body">Picked from %1$s of short-form video today. While a feed is open it is squeezed for %2$s s of every %3$s s, then let go.</string>
     <string name="home_where_title">Where today went</string>
     <string name="home_nothing_tracked">Nothing tracked yet today.</string>
     <string name="home_slowing_body">%1$s is on screen, and ORBIS is squeezing it.</string>
@@ -79,6 +79,8 @@
     <string name="controls_stop">Stop slowing now</string>
     <string name="controls_test_body">The test slows every app ORBIS covers for 30 seconds, then stops on its own. It is for checking ORBIS works, not for everyday use — the switch above does that.</string>
     <string name="controls_details_title">Technical details</string>
+    <string name="controls_details_shut">Technical details ▾</string>
+    <string name="controls_details_open">Technical details ▴</string>
     <string name="controls_seeing_value">%1$s — %2$s</string>
     <string name="controls_slowing_value">Slowing %1$s right now.</string>
     <string name="controls_slowing_idle">Nothing is being slowed. Everything is at full speed.</string>

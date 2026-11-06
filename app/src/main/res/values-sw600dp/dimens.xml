@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Wide enough to breathe: a tablet or an unfolded phone. -->
+    <dimen name="screen_gutter">24dp</dimen>
+    <dimen name="card_padding">24dp</dimen>
+</resources>

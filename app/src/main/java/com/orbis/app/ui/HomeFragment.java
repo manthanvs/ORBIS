@@ -50,6 +50,8 @@ public class HomeFragment extends Fragment {
 
     private static final int BAR_MIN_DP = 3;
     private static final int BAR_LABEL_DP = 18;
+    private static final int BAR_MAX_WIDTH_DP = 36;
+    private static final int BAR_MIN_WIDTH_DP = 6;
 
     private AppUsageAdapter adapter;
 
@@ -62,6 +64,7 @@ public class HomeFragment extends Fragment {
     private TextView reclaimedValue;
     private TextView reclaimedBody;
     private TextView streakTeaser;
+    private LinearLayout weekCard;
     private LinearLayout weekChart;
     private TextView weekCaption;
     private TextView levelTitle;
@@ -93,6 +96,7 @@ public class HomeFragment extends Fragment {
         reclaimedValue = view.findViewById(R.id.reclaimed_value);
         reclaimedBody = view.findViewById(R.id.reclaimed_body);
         streakTeaser = view.findViewById(R.id.streak_teaser);
+        weekCard = view.findViewById(R.id.week_card);
         weekChart = view.findViewById(R.id.week_chart);
         weekCaption = view.findViewById(R.id.week_caption);
         levelTitle = view.findViewById(R.id.level_title);
@@ -271,13 +275,35 @@ public class HomeFragment extends Fragment {
                         seconds(level.getFriction().getSqueezeMillis()),
                         seconds(level.getFriction().getPeriodMillis())));
 
+        // The chart and the reclaimed figure answer different questions, so they
+        // appear independently: a couple of recorded days are worth drawing long
+        // before there is enough history to claim a baseline.
+        // Two recorded days minimum: a single bar is a data point, not a trend,
+        // and it rendered as one full-width slab across the whole card.
+        if (summary == null || summary.getWeek().size() < 2) {
+            weekCard.setVisibility(View.GONE);
+        } else {
+            weekCard.setVisibility(View.VISIBLE);
+            // The bar width is derived from the chart's own width, which is 0
+            // until the first layout pass; on that pass, draw after it.
+            final ReclaimedSummary drawn = summary;
+            if (weekChart.getWidth() == 0) {
+                weekChart.post(
+                        () -> {
+                            if (getView() != null) {
+                                drawWeek(drawn);
+                            }
+                        });
+            } else {
+                drawWeek(drawn);
+            }
+        }
+
         if (summary == null || summary.getBaselineMillis() == null) {
             // Nothing to compare against yet. Saying so beats inventing a number.
             reclaimedTitle.setText(R.string.home_learning_title);
             reclaimedValue.setVisibility(View.GONE);
             reclaimedBody.setText(R.string.home_learning_body);
-            weekChart.removeAllViews();
-            weekCaption.setText("");
             return;
         }
 
@@ -290,8 +316,6 @@ public class HomeFragment extends Fragment {
                 getString(
                         reclaimed >= 0L ? R.string.home_reclaimed_body : R.string.home_over_body,
                         DurationFormatter.format(baseline)));
-
-        drawWeek(summary);
     }
 
     /** Today's short-form minutes across every tracked app, as the level sees them. */
@@ -348,10 +372,18 @@ public class HomeFragment extends Fragment {
                             day.getDate().equals(today)
                                     ? R.color.orbis_accent
                                     : R.color.orbis_outline));
-            LinearLayout.LayoutParams barParams =
-                    new LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT, height);
+            // Capped rather than MATCH_PARENT: with only two or three recorded
+            // days a column is a third of the card wide, and a bar that fills it
+            // reads as a block of colour instead of a bar.
             int gap = (int) (3 * density);
+            int columnWidth = weekChart.getWidth() / summary.getWeek().size();
+            int barWidth = (int) (BAR_MAX_WIDTH_DP * density);
+            if (columnWidth > 0) {
+                barWidth = Math.min(barWidth, columnWidth - 2 * gap);
+            }
+            barWidth = Math.max(barWidth, (int) (BAR_MIN_WIDTH_DP * density));
+            LinearLayout.LayoutParams barParams =
+                    new LinearLayout.LayoutParams(barWidth, height);
             barParams.setMargins(gap, 0, gap, (int) (4 * density));
             bar.setLayoutParams(barParams);
 
