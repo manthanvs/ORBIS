@@ -11,6 +11,11 @@
 </p>
 
 ---
+## 📍Download ORBIS
+
+- [Download the APK directly](https://github.com/manthanvs/ORBIS/releases/download/v1.0.0/app-release.apk)
+
+---
 
 ## 📌 What Is ORBIS?
 
